@@ -23,7 +23,7 @@ def build(conn) -> toga.Box:
         placeholder="sessions per week",
     )
     
-    status_lable = toga.Label("")
+    status_label = toga.Label("")
     
     def on_save(widget):
         try:
@@ -36,7 +36,7 @@ def build(conn) -> toga.Box:
             )
             status_label.text = "Saved."
         except (ValueError, TypeError):
-            status_lable.text = "Check that age/weight/frequency are numbers."
+            status_label.text = "Check that age/weight/frequency are numbers."
     
     save_button = toga.Button("Save", on_press=on_save)
     
@@ -51,6 +51,6 @@ def build(conn) -> toga.Box:
         box.add(widget)
     
     box.add(save_button)
-    box.add(status_lable)
+    box.add(status_label)
     
     return box

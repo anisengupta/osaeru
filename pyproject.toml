@@ -12,6 +12,7 @@ formal_name = "Osaeru"
 description = "Personal AI-assisted jiu jitsu coach"
 sources = ["src/osaeru"]
 requires = [
+    "toga>=0.4.0",
     "anthropic",
     "keyring",
 ]
@@ -19,10 +20,25 @@ test_sources = ["tests"]
 test_requires = ["pytest"]
 
 [tool.briefcase.app.osaeru.macOS]
-requires = []
+requires = [
+    "toga-cocoa>=0.4.0",
+]
+
+[tool.briefcase.app.osaeru.linux]
+requires = [
+    "toga-gtk>=0.4.0",
+]
+
+[tool.briefcase.app.osaeru.windows]
+requires = [
+    "toga-winforms>=0.4.0",
+]
 
 [tool.briefcase.app.osaeru.iOS]
-requires = []
+requires = [
+    "toga-iOS>=0.4.0",
+    "std-nslog>=1.0.0",
+]
 
 # NOTE: local notification scheduling APIs on iOS/Toga move between
 # Briefcase/Toga releases. Before wiring notifications.py up for real,
