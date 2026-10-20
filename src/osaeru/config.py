@@ -66,7 +66,7 @@ KEYRING_SERVICE = "bjj_coach"
 
 KEYRING_KEY = "anthropic_api_key"
 
-MODEL = "claude-sonnet-4-6"  # keep in sync with whatever tier/model you're on
+MODEL = "claude-sonnet-5-5"
 
 FLOWCHART_SYSTEM_PROMPT = """\
 You are a jiu jitsu coaching assistant. You receive a training session note \

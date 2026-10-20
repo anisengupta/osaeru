@@ -6,6 +6,7 @@ from toga.style.pack import COLUMN
 
 from osaeru.config import NODE_RADIUS
 from osaeru import database as db
+from osaeru import claude_sync
 
 
 def _layout(
@@ -54,11 +55,21 @@ def build(conn) -> toga.Box:
             with canvas.context.Fill(color="#3B8BD4") as fill:
                 fill.arc(x, y, NODE_RADIUS, 0, 2 * math.pi)
             canvas.context.write_text(node["name"], x - NODE_RADIUS, y, font=None)
+    
+    def sync_now(widget):
+        try:
+            count = claude_sync.run_sync(conn)
+            status_label.text = f"Synced {count} item(s)."
+        except Exception as e:
+            status_label.text = f"Sync failed: {e}"
+        redraw()
 
     refresh_button = toga.Button("Refresh", on_press=redraw)
+    sync_button = toga.Button("Sync now", on_press=sync_now)
 
     box = toga.Box(style=Pack(direction=COLUMN, padding=16))
     box.add(refresh_button)
+    box.add(sync_button)
     box.add(status_label)
     box.add(canvas)
     
