@@ -85,3 +85,5 @@ Respond ONLY with JSON, no prose, no markdown fences, matching this shape:
   "recommendations": [{"text": str, "related_skill": str}]
 }
 """
+
+NODE_RADIUS = 45
