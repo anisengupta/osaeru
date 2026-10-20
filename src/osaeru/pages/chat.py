@@ -1,3 +1,5 @@
+"""Page containing funcs to render the chat interface and handle user input."""
+
 import toga
 from toga.style import Pack
 from toga.style.pack import COLUMN, ROW
@@ -6,6 +8,15 @@ from osaeru import claude_sync, database as db
 
 
 def build(conn) -> toga.Box:
+    """Builds the chat interface.
+
+    Args:
+        conn (_type_): Database connection
+
+    Returns:
+        toga.Box: The chat interface box containing the history view, 
+        message input, and send button.
+    """
     history_view = toga.MultilineTextInput(readonly=True, style=Pack(flex=1))
     message_input = toga.TextInput(
         placeholder="Talk about the session...", 
@@ -14,6 +25,8 @@ def build(conn) -> toga.Box:
     status_label = toga.Label("")
     
     def render_history():
+        """Renders the chat history in the history view.
+        """
         lines = []
         for m in db.list_chat_messages(conn):
             speaker = "You" if m["role"] == "user" else "Coach"
@@ -22,6 +35,13 @@ def build(conn) -> toga.Box:
         history_view.value = "\n\n".join(lines)
     
     def on_send(widget):
+        """Handles the send button press event. It saves the user's message 
+        to the database and attempts to get a reply from Claude. 
+        If Claude is unreachable, it saves the message for later processing.
+
+        Args:
+            widget (_type_): The widget that triggered the event (send button).
+        """
         text = message_input.value.strip()
         if not text:
             return

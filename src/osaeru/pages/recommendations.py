@@ -1,3 +1,5 @@
+"""Contains funcs to render the recommendations interface and handle user input."""
+
 import toga
 from toga.style import Pack
 from toga.style.pack import COLUMN, ROW
@@ -6,9 +8,22 @@ from osaeru import database as db
 
 
 def build(conn) -> toga.Box:
+    """Builds the recommendations interface.
+
+    Args:
+        conn (_type_): Database connection.
+
+    Returns:
+        toga.Box: The recommendations interface box containing the 
+        list of recommendations and buttons to mark them as tried 
+        or skipped.
+    """
     list_box = toga.Box(style=Pack(direction=COLUMN))
     
     def refresh():
+        """Refreshes the list of recommendations from the database 
+        and updates the interface.
+        """
         list_box.clear()
         recs = db.list_recommendations(conn, status="new")
         if not recs:

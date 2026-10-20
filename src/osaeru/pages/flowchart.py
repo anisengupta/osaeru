@@ -1,3 +1,5 @@
+"""Contains funcs to render the flowchart interface and handle user input."""
+
 import math
 from typing import List, Dict, Tuple
 import toga
@@ -13,6 +15,17 @@ def _layout(
     nodes: List[dict], 
     width: int, 
     height: int) -> Dict[str, Tuple[float, float]]:
+    """Creates a circular layout for the nodes in the flowchart.
+
+    Args:
+        nodes (List[dict]): List of nodes, each represented as a dictionary with at least a "name" key.
+        width (int): The width of the canvas area where the flowchart will be drawn.
+        height (int): The height of the canvas area where the flowchart will be drawn.
+
+    Returns:
+        Dict[str, Tuple[float, float]]: A dictionary mapping each node's name to its (x, y) 
+        position on the canvas.
+    """
     positions = {}
     n = max(len(nodes), 1)
     cx, cy = width / 2, height / 2
@@ -24,6 +37,15 @@ def _layout(
 
 
 def build(conn) -> toga.Box:
+    """Builds the flowchart interface.
+
+    Args:
+        conn (_type_): Database connection.
+
+    Returns:
+        toga.Box: The flowchart interface box containing 
+        the canvas, refresh button, sync button, and status label.
+    """
     canvas = toga.Canvas(style=Pack(flex=1))
     status_label = toga.Label("")
 
@@ -57,6 +79,12 @@ def build(conn) -> toga.Box:
             canvas.context.write_text(node["name"], x - NODE_RADIUS, y, font=None)
     
     def sync_now(widget):
+        """Syncs the local data with the remote server using Claude. 
+        Updates the status label with the result.
+
+        Args:
+            widget (_type_): The widget that triggered the event (sync button).
+        """
         try:
             count = claude_sync.run_sync(conn)
             status_label.text = f"Synced {count} item(s)."

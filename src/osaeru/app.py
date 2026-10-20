@@ -1,3 +1,5 @@
+"""App module for the Osaeru application."""
+
 import threading
 import toga
 
@@ -6,7 +8,16 @@ from osaeru.pages import chat, flowchart, notes, profile, recommendations
 
 
 class OsaeruApp(toga.App):
+    """The main application class for Osaeru, a BJJ coaching app.
+
+    Args:
+        toga (_type_): The Toga library used for building the GUI.
+    """
     def startup(self):
+        """Starts the application by establishing a database connection, 
+        building the main window with tabs for different features, 
+        and starting a background thread for syncing with Claude.
+        """
         self.conn = db.connect()
         
         tabs = toga.OptionContainer(
@@ -26,6 +37,8 @@ class OsaeruApp(toga.App):
         threading.Thread(target=self._try_sync, daemon=True).start()
     
     def _try_sync(self):
+        """Tries to run the sync process with Claude in a background thread.
+        """
         try:
             claude_sync.run_sync(self.conn)
         except Exception:
@@ -33,4 +46,10 @@ class OsaeruApp(toga.App):
 
 
 def main():
+    """The main entry point for the Osaeru application.
+
+    Returns:
+        _type_: An instance of the OsaeruApp class, 
+        initialized with the app name and identifier.
+    """
     return OsaeruApp("BJJ Coach", "com.yourname.bjjcoach")

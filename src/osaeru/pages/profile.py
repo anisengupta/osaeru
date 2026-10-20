@@ -1,3 +1,5 @@
+"""Containing funcs to render the user profile interface and handle user input."""
+
 import toga
 from toga.style import Pack
 from toga.style.pack import COLUMN
@@ -6,6 +8,16 @@ from osaeru import database as db
 
 
 def build(conn) -> toga.Box:
+    """Builds the user profile interface.
+
+    Args:
+        conn (_type_): Database connection.
+
+    Returns:
+        toga.Box: The user profile interface box containing 
+        the age, sex, weight, and session frequency inputs, 
+        save button, and status label.
+    """
     existing = db.get_profile(conn)
     
     age_input = toga.TextInput(value=str(existing["age"]) if existing else "")
@@ -26,6 +38,11 @@ def build(conn) -> toga.Box:
     status_label = toga.Label("")
     
     def on_save(widget):
+        """Saves the user profile to the database and updates the status label.
+
+        Args:
+            widget (_type_): The widget that triggered the event (save button).
+        """
         try:
             db.save_profile(
                 conn,
