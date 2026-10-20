@@ -1,0 +1,30 @@
+[tool.briefcase]
+project_name = "Osaeru"
+bundle = "com.yourname"
+version = "0.1.0"
+url = "https://example.com"
+license.file = "LICENSE"
+author = "Aniruddha Sengupta"
+author_email = "zenzosan@gmail.com"
+
+[tool.briefcase.app.osaeru]
+formal_name = "Osaeru"
+description = "Personal AI-assisted jiu jitsu coach"
+sources = ["src/osaeru"]
+requires = [
+    "anthropic",
+    "keyring",
+]
+test_sources = ["tests"]
+test_requires = ["pytest"]
+
+[tool.briefcase.app.osaeru.macOS]
+requires = []
+
+[tool.briefcase.app.osaeru.iOS]
+requires = []
+
+# NOTE: local notification scheduling APIs on iOS/Toga move between
+# Briefcase/Toga releases. Before wiring notifications.py up for real,
+# check the current Toga docs for the notification backend on iOS -
+# this scaffold leaves it as a clearly-marked stub.
