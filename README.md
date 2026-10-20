@@ -1,5 +1,7 @@
 # osaeru
 
+>The Japanese verb osaeru (おさえる) means "to hold down," "to restrain," >"to suppress," or "to grasp/comprehend"
+
 ![alt text](docs/image.png)
 
 A personal, mostly-offline jiu jitsu training companion for iPad. Runs
