@@ -46,7 +46,7 @@ def _client() -> Anthropic:
         RuntimeError: If no Anthropic API key is stored in the OS keychain.
 
     Returns:
-        Anthropic: An instance of the Anthropic client initialized 
+        Anthropic: An instance of the Anthropic client initialized
         with the stored API key.
     """
     api_key = get_api_key()
@@ -55,17 +55,19 @@ def _client() -> Anthropic:
             "No Anthropic API key stored. Prompt the user to enter one in "
             "Settings before calling anything in this module."
         )
-    
+
     return Anthropic(api_key=api_key)
 
 
-def analyse_session_note(notes: str, existing_flowchart: Dict[str, Any]) -> Dict[str, Any]:
-    """Analyses a session note and existing flowchart to extract 
+def analyse_session_note(
+    notes: str, existing_flowchart: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Analyses a session note and existing flowchart to extract
     new skills, edges, and recommendations.
 
     Args:
         notes (str): The session note text to be analysed.
-        existing_flowchart (Dict[str, Any]): The current flowchart 
+        existing_flowchart (Dict[str, Any]): The current flowchart
         represented as a dictionary.
 
     Returns:
@@ -87,19 +89,16 @@ def analyse_session_note(notes: str, existing_flowchart: Dict[str, Any]) -> Dict
         ],
     )
     text = "".join(block.text for block in message.content if block.type == "text")
-    
+
     return json.loads(text)
 
 
-def chat_reply(
-    history: List[Dict[str, str]],
-    flowchart: Dict[str, Any]
-) -> str:
+def chat_reply(history: List[Dict[str, str]], flowchart: Dict[str, Any]) -> str:
     """Creates a chat reply based on the conversation history and the current flowchart.
 
     Args:
-        history (List[Dict[str, str]]): A list of dictionaries representing the 
-        conversation history, where each dictionary contains a "role" 
+        history (List[Dict[str, str]]): A list of dictionaries representing the
+        conversation history, where each dictionary contains a "role"
         (either "user" or "assistant") and "content" (the message text).
         flowchart (Dict[str, Any]): The current flowchart represented as a dictionary.
 
@@ -118,7 +117,7 @@ def chat_reply(
         system=system,
         messages=history,
     )
-    
+
     return "".join(block.text for block in message.content if block.type == "text")
 
 
@@ -133,12 +132,12 @@ def run_sync(conn) -> int:
     """
     processed = 0
     flowchart = db.get_flowchart(conn)
-    
+
     for item in db.pending_sync_items(conn):
         payload = json.loads(item["payload"])
         if item["kind"] == "session_note":
             result = analyse_session_note(payload["notes"], flowchart)
-            
+
             for skill in result.get("new_skills", []):
                 db.upsert_skill(
                     conn,
@@ -147,28 +146,24 @@ def run_sync(conn) -> int:
                     skill.get("confidence"),
                     session_id=payload.get("session_id"),
                 )
-            
+
             for edge in result.get("new_edges", []):
-                db.add_skill_edge(
-                    conn,
-                    edge["from"],
-                    edge["to"],
-                    edge["relation"]
-                )
-            
+                db.add_skill_edge(conn, edge["from"], edge["to"], edge["relation"])
+
             for rec in result.get("recommendations", []):
-                related = db.upsert_skill(
-                    conn, 
-                    rec["related_skill"]
-                ) if rec.get("related_skill") else None
+                related = (
+                    db.upsert_skill(conn, rec["related_skill"])
+                    if rec.get("related_skill")
+                    else None
+                )
                 db.add_recommendation(conn, rec["text"], related)
-            
+
             flowchart = db.get_flowchart(conn)
-        
+
         elif item["kind"] == "chat_message":
             pass
-        
+
         db.mark_synced(conn, item["id"])
         processed += 1
-    
+
     return processed

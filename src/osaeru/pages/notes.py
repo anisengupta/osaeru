@@ -14,7 +14,7 @@ def build(conn) -> toga.Box:
         conn (_type_): Database connection.
 
     Returns:
-        toga.Box: The session notes interface box containing the note input, 
+        toga.Box: The session notes interface box containing the note input,
         feeling selection, save button, status label, and history list.
     """
     note_input = toga.MultilineTextInput(
@@ -24,22 +24,18 @@ def build(conn) -> toga.Box:
         items=["great", "good", "okay", "tired", "frustrated"]
     )
     status_label = toga.Label("")
-    history_list = toga.Table(
-        headings=["Date", "Feeling", "Notes"],
-        data=[]
-    )
-    
+    history_list = toga.Table(headings=["Date", "Feeling", "Notes"], data=[])
+
     def refresh_history():
-        """Refreshes the history list with the latest session notes from the database.
-        """
+        """Refreshes the history list with the latest session notes from the database."""
         rows = db.list_sessions(conn)
         history_list.data = [
             (r["occurred_at"][:10], r["feeling"] or "", r["notes"][:60]) for r in rows
         ]
-    
+
     def on_save(widget):
-        """Func to handle the save button press event. It saves the session 
-        note to the database and updates the status label. 
+        """Func to handle the save button press event. It saves the session
+        note to the database and updates the status label.
         If the note input is empty, it prompts the user to write something first.
 
         Args:
@@ -48,7 +44,7 @@ def build(conn) -> toga.Box:
         if not note_input.value.strip():
             status_label.text = "Write something first."
             return
-        
+
         db.add_session_note(
             conn,
             note_input.value.strip(),
@@ -57,9 +53,9 @@ def build(conn) -> toga.Box:
         status_label.text = "Saved - will sync to Claude when you're online."
         note_input.value = ""
         refresh_history()
-    
+
     save_button = toga.Button("Save note", on_press=on_save)
-    
+
     box = toga.Box(style=Pack(direction=COLUMN, padding=16))
     box.add(toga.Label("How did it feel?"))
     box.add(feeling_input)
@@ -69,7 +65,7 @@ def build(conn) -> toga.Box:
     box.add(status_label)
     box.add(toga.Label("Past sessions", style=Pack(padding_top=16)))
     box.add(history_list)
-    
+
     refresh_history()
-    
+
     return box

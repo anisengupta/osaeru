@@ -1,6 +1,5 @@
 """Config file containing vars to be used in the app."""
 
-
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS profile (
     id INTEGER PRIMARY KEY CHECK (id = 1),  -- singleton row

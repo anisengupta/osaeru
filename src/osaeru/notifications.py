@@ -7,19 +7,18 @@ import datetime as dt
 
 
 def schedule_pre_session_check_in(
-    fire_at: dt.datetime,
-    message: str = "How are you feeling before your session?"
+    fire_at: dt.datetime, message: str = "How are you feeling before your session?"
 ) -> None:
-    """Schedules a local notification on the device to check in with the user 
+    """Schedules a local notification on the device to check in with the user
     before their session.
 
     Args:
         fire_at (dt.datetime): The datetime when the notification should be fired.
-        message (str, optional): The message to send to the user. Defaults to 
+        message (str, optional): The message to send to the user. Defaults to
         "How are you feeling before your session?".
 
     Raises:
-        NotImplementedError: Raises if the function is not implemented for 
+        NotImplementedError: Raises if the function is not implemented for
         the current platform.
     """
     raise NotImplementedError(
@@ -31,7 +30,7 @@ def cancel_all_scheduled() -> None:
     """Cancels all scheduled local notifications on the device.
 
     Raises:
-        NotImplementedError: Raises if the function is not implemented for 
+        NotImplementedError: Raises if the function is not implemented for
         the current platform.
     """
     raise NotImplementedError(

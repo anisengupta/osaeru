@@ -14,29 +14,27 @@ def build(conn) -> toga.Box:
         conn (_type_): Database connection
 
     Returns:
-        toga.Box: The chat interface box containing the history view, 
+        toga.Box: The chat interface box containing the history view,
         message input, and send button.
     """
     history_view = toga.MultilineTextInput(readonly=True, style=Pack(flex=1))
     message_input = toga.TextInput(
-        placeholder="Talk about the session...", 
-        style=Pack(flex=1)
+        placeholder="Talk about the session...", style=Pack(flex=1)
     )
     status_label = toga.Label("")
-    
+
     def render_history():
-        """Renders the chat history in the history view.
-        """
+        """Renders the chat history in the history view."""
         lines = []
         for m in db.list_chat_messages(conn):
             speaker = "You" if m["role"] == "user" else "Coach"
             lines.append(f"{speaker}: {m['content']}")
-        
+
         history_view.value = "\n\n".join(lines)
-    
+
     def on_send(widget):
-        """Handles the send button press event. It saves the user's message 
-        to the database and attempts to get a reply from Claude. 
+        """Handles the send button press event. It saves the user's message
+        to the database and attempts to get a reply from Claude.
         If Claude is unreachable, it saves the message for later processing.
 
         Args:
@@ -45,11 +43,11 @@ def build(conn) -> toga.Box:
         text = message_input.value.strip()
         if not text:
             return
-        
+
         db.add_chat_message(conn, "user", text)
         message_input.value = ""
         render_history()
-        
+
         try:
             history = [
                 {"role": m["role"], "content": m["content"]}
@@ -62,20 +60,20 @@ def build(conn) -> toga.Box:
             status_label.text = ""
         except Exception:
             status_label.text = "Couldn't reach Claude - message saved, will need a reply once you're online"
-        
+
         render_history()
-    
+
     send_button = toga.Button("Send", on_press=on_send)
-    
+
     input_row = toga.Box(style=Pack(direction=ROW, padding_top=8))
     input_row.add(message_input)
     input_row.add(send_button)
-    
+
     box = toga.Box(style=Pack(direction=COLUMN, padding=16))
     box.add(history_view)
     box.add(input_row)
     box.add(status_label)
-    
+
     render_history()
-    
+
     return box

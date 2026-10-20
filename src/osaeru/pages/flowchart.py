@@ -12,9 +12,8 @@ from osaeru import claude_sync
 
 
 def _layout(
-    nodes: List[dict], 
-    width: int, 
-    height: int) -> Dict[str, Tuple[float, float]]:
+    nodes: List[dict], width: int, height: int
+) -> Dict[str, Tuple[float, float]]:
     """Creates a circular layout for the nodes in the flowchart.
 
     Args:
@@ -23,7 +22,7 @@ def _layout(
         height (int): The height of the canvas area where the flowchart will be drawn.
 
     Returns:
-        Dict[str, Tuple[float, float]]: A dictionary mapping each node's name to its (x, y) 
+        Dict[str, Tuple[float, float]]: A dictionary mapping each node's name to its (x, y)
         position on the canvas.
     """
     positions = {}
@@ -43,7 +42,7 @@ def build(conn) -> toga.Box:
         conn (_type_): Database connection.
 
     Returns:
-        toga.Box: The flowchart interface box containing 
+        toga.Box: The flowchart interface box containing
         the canvas, refresh button, sync button, and status label.
     """
     canvas = toga.Canvas(style=Pack(flex=1))
@@ -56,7 +55,9 @@ def build(conn) -> toga.Box:
         edges = graph["edges"]
 
         if not nodes:
-            status_label.text = "No skills recorded yet - add session notes to build this out."
+            status_label.text = (
+                "No skills recorded yet - add session notes to build this out."
+            )
             return
         status_label.text = f"{len(nodes)} skills, {len(edges)} connections"
 
@@ -77,9 +78,9 @@ def build(conn) -> toga.Box:
             with canvas.context.Fill(color="#3B8BD4") as fill:
                 fill.arc(x, y, NODE_RADIUS, 0, 2 * math.pi)
             canvas.context.write_text(node["name"], x - NODE_RADIUS, y, font=None)
-    
+
     def sync_now(widget):
-        """Syncs the local data with the remote server using Claude. 
+        """Syncs the local data with the remote server using Claude.
         Updates the status label with the result.
 
         Args:
@@ -100,7 +101,7 @@ def build(conn) -> toga.Box:
     box.add(sync_button)
     box.add(status_label)
     box.add(canvas)
-    
+
     redraw()
-    
+
     return box
