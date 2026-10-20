@@ -1,5 +1,7 @@
 # osaeru
 
+![alt text](docs/image.png)
+
 A personal, mostly-offline jiu jitsu training companion for iPad. Runs
 entirely on-device (SQLite + local notifications); only calls out to the
 Claude API when there's a connection, to parse session notes into a skills
