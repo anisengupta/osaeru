@@ -115,17 +115,17 @@ def build(conn) -> toga.Box:
         nodes = graph["nodes"]
         edges = graph["edges"]
         state["nodes_by_name"] = {n["name"]: n for n in nodes}
-        
+
         if not nodes:
             status_label.text = "No skills recorded yet - add session notes to build this out"
             state["positions"] = {}
             return
         status_label.text = f"{len(nodes)} skills, {len(edges)} connections"
-        
+
         width = canvas.layout.content_width or 900
         positions = _layout(nodes, edges, width)
-        state["_positions"] = positions
-        
+        state["positions"] = positions
+
         for edge in edges:
             if edge["from_name"] in positions and edge["to_name"] in positions:
                 x1, y1 = positions[edge["from_name"]]
@@ -133,23 +133,34 @@ def build(conn) -> toga.Box:
                 with canvas.context.Stroke(color="#888888") as stroke:
                     stroke.move_to(x1 + NODE_WIDTH / 2, y1 + NODE_HEIGHT)
                     stroke.line_to(x2 + NODE_WIDTH / 2, y2)
-        
+
         for node in nodes:
             x, y = positions[node["name"]]
             color = CONFIDENCE_COLORS.get((node.get("confidence") or "").lower(), DEFAULT_COLOR)
-            
+
             with canvas.context.Fill(color=color) as fill:
                 fill.rect(x, y, NODE_WIDTH, NODE_HEIGHT)
-            
+
             with canvas.context.Fill(color="white") as text_fill:
                 lines = _wrap_text(canvas, node["name"], NODE_WIDTH - 12)
                 line_height = 16
                 start_y = y + NODE_HEIGHT / 2 - (len(lines) * line_height) / 2
                 for i, line in enumerate(lines):
                     text_fill.write_text(line, x + 6, start_y + i * line_height, font=None)
-        
-        max_level = max(_assign_levels(nodes, edges).values(), default=0)
-        canvas.style.update(height=max(600, 80 + (max_level + 1) * LEVEL_GAP_Y))
+
+        levels = _assign_levels(nodes, edges)
+        max_level = max(levels.values(), default=0)
+
+        row_counts: Dict[int, int] = {}
+        for n in nodes:
+            row_counts[levels[n["name"]]] = row_counts.get(levels[n["name"]], 0) + 1
+        widest_row_count = max(row_counts.values(), default=1)
+        required_width = widest_row_count * (NODE_WIDTH + NODE_GAP_X)
+
+        canvas.style.update(
+            width=max(900, required_width),
+            height=max(600, 80 + (max_level + 1) * LEVEL_GAP_Y),
+        )
     
     def on_tap(widget, x, y):
         for name, (nx, ny) in state["positions"].items():
@@ -179,7 +190,7 @@ def build(conn) -> toga.Box:
     
     legend = toga.Label("🟧 still learning    🟪 comfortable    🟩 reliable", style=Pack(padding_top=8))
     
-    scroll = toga.ScrollContainer(content=canvas, style=Pack(flex=1))
+    scroll = toga.ScrollContainer(content=canvas, horizontal=True, vertical=True, style=Pack(flex=1))
     
     box = toga.Box(style=Pack(direction=COLUMN, padding=16))
     box.add(refresh_button)
