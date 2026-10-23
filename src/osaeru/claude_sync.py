@@ -59,6 +59,16 @@ def _client() -> Anthropic:
     return Anthropic(api_key=api_key)
 
 
+def _extract_json(text: str) -> Dict[str, Any]:
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.split("```")[1]
+        if cleaned.startswith("json"):
+            cleaned = cleaned[4:]
+    
+    return json.loads(cleaned.strip())
+
+
 def analyse_session_note(
     notes: str, existing_flowchart: Dict[str, Any]
 ) -> Dict[str, Any]:
