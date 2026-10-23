@@ -91,7 +91,7 @@ def analyse_session_note(
     client = _client()
     message = client.messages.create(
         model=MODEL,
-        max_tokens=1000,
+        max_tokens=4000,
         system=FLOWCHART_SYSTEM_PROMPT,
         messages=[
             {
@@ -104,6 +104,16 @@ def analyse_session_note(
         ],
     )
     logger.debug(f"Raw API response object: {message}")
+    
+    if message.stop_reason == "max_tokens":
+        logger.error(
+            "Response was truncated at max_tokens - note may be too long/detailed "
+            "for the current limit, or flowchart has grown large enough to eat into budget."
+        )
+        raise RuntimeError(
+            "Claude's response was cut off (hit max_tokens) before finishing the JSON. "
+            "Try a shorter note, or raise max_tokens further in claude_sync.py."
+        )
 
     text = "".join(block.text for block in message.content if block.type == "text")
     logger.info(f"Raw text from Claude (first 500 chars): {text[:500]}")
