@@ -5,10 +5,13 @@ from typing import List, Dict, Tuple
 import toga
 from toga.style import Pack
 from toga.style.pack import COLUMN
+import logging
 
 from osaeru.config import NODE_RADIUS
 from osaeru import database as db
 from osaeru import claude_sync
+
+logger = logging.getLogger(__name__)
 
 
 def _layout(
@@ -47,6 +50,7 @@ def build(conn) -> toga.Box:
     """
     canvas = toga.Canvas(style=Pack(flex=1))
     status_label = toga.Label("")
+    sync_status_label = toga.Label("")
 
     def redraw(widget=None):
         canvas.context.clear()
@@ -77,6 +81,8 @@ def build(conn) -> toga.Box:
             x, y = positions[node["name"]]
             with canvas.context.Fill(color="#3B8BD4") as fill:
                 fill.arc(x, y, NODE_RADIUS, 0, 2 * math.pi)
+            with canvas.context.Fill(color="white") as text_fill:
+                text_fill.write_text(node["name"], x - NODE_RADIUS, y, font=None)
             canvas.context.write_text(node["name"], x - NODE_RADIUS, y, font=None)
 
     def sync_now(widget):
@@ -86,11 +92,13 @@ def build(conn) -> toga.Box:
         Args:
             widget (_type_): The widget that triggered the event (sync button).
         """
+        logger.info("Sync button now pressed")
         try:
             count = claude_sync.run_sync(conn)
             status_label.text = f"Synced {count} item(s)."
         except Exception as e:
-            status_label.text = f"Sync failed: {e}"
+            logger.error("sync_now failed: %s", e)
+            sync_status_label.text = f"Sync failed: {e}"
         redraw()
 
     refresh_button = toga.Button("Refresh", on_press=redraw)
@@ -99,6 +107,7 @@ def build(conn) -> toga.Box:
     box = toga.Box(style=Pack(direction=COLUMN, padding=16))
     box.add(refresh_button)
     box.add(sync_button)
+    box.add(sync_status_label)
     box.add(status_label)
     box.add(canvas)
 
