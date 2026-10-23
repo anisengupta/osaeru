@@ -176,7 +176,7 @@ def run_sync(conn) -> int:
         
         try:
             if item["kind"] == "session_note":
-                result = analyse_session_note(payload["notes", flowchart])
+                result = analyse_session_note(payload["notes"], flowchart)
                 
                 for skill in result.get("new_skills", []):
                     logger.info(f"Upserting skill: {skill}")
