@@ -81,6 +81,8 @@ def build(conn) -> toga.Box:
             x, y = positions[node["name"]]
             with canvas.context.Fill(color="#3B8BD4") as fill:
                 fill.arc(x, y, NODE_RADIUS, 0, 2 * math.pi)
+            with canvas.context.Fill(color="white") as text_fill:
+                text_fill.write_text(node["name"], x - NODE_RADIUS, y, font=None)
             canvas.context.write_text(node["name"], x - NODE_RADIUS, y, font=None)
 
     def sync_now(widget):
