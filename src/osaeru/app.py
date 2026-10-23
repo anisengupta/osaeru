@@ -24,7 +24,7 @@ class OsaeruApp(toga.App):
         log_path = configure()
         logger = logging.getLogger(__name__)
         logger.info(f"App starting. Logging to {log_path}")
-        
+
         self.conn = db.connect()
         logger.info(f"Database connected at {db.default_db_path()}")
 
