@@ -5,6 +5,11 @@ from pathlib import Path
 
 
 def configure() -> Path:
+    """Configure logger for the app.
+
+    Returns:
+        Path: The path of the logging file.
+    """
     log_path = Path.home() / ".osaeru" / "osaeru.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     
