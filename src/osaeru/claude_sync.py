@@ -100,7 +100,7 @@ def analyse_session_note(
     )
     text = "".join(block.text for block in message.content if block.type == "text")
 
-    return json.loads(text)
+    return _extract_json(text)
 
 
 def chat_reply(history: List[Dict[str, str]], flowchart: Dict[str, Any]) -> str:
