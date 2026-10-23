@@ -16,9 +16,13 @@ import json
 from typing import Any, Optional, Dict, List
 import keyring
 from anthropic import Anthropic
+import logging
+import traceback
 
 from osaeru.config import KEYRING_KEY, KEYRING_SERVICE, MODEL, FLOWCHART_SYSTEM_PROMPT
 from osaeru import database as db
+
+logger = logging.getLogger(__name__)
 
 
 def get_api_key() -> Optional[str]:
@@ -83,6 +87,7 @@ def analyse_session_note(
     Returns:
         Dict[str, Any]: A dictionary containing new skills, edges, and recommendations.
     """
+    logger.debug(f"analyse_session_note called. Note length={len(notes)}, flowchart_nodes={len(existing_flowchart.get("nodes", []))}")
     client = _client()
     message = client.messages.create(
         model=MODEL,
@@ -98,9 +103,21 @@ def analyse_session_note(
             }
         ],
     )
-    text = "".join(block.text for block in message.content if block.type == "text")
+    logger.debug(f"Raw API response object: {message}")
 
-    return _extract_json(text)
+    text = "".join(block.text for block in message.content if block.type == "text")
+    logger.info(f"Raw text from Claude (first 500 chars): {text[:500]}")
+    
+    parsed = _extract_json(text)
+    
+    logger.info(
+        f"""Parsed result: new_skills={len(parsed.get("new_skills", []))}, 
+        new_edges={len(parsed.get("new_edges", []))}, 
+        recommendations={len(parsed.get("recommendations", []))}
+        """
+    )
+
+    return parsed
 
 
 def chat_reply(history: List[Dict[str, str]], flowchart: Dict[str, Any]) -> str:
@@ -140,40 +157,64 @@ def run_sync(conn) -> int:
     Returns:
         int: The number of items processed from the sync queue.
     """
+    logger.info("Sync starting")
     processed = 0
     flowchart = db.get_flowchart(conn)
 
-    for item in db.pending_sync_items(conn):
+    pending = db.pending_sync_items(conn)
+    logger.info(f"Found {len(pending)} pending sync item(s)")
+    
+    if not pending:
+        logger.warning(
+            "No pending items - nothing to sync. "
+            "If you expected items here, check sync_queue table directly."
+        )
+    
+    for item in pending:
+        logger.info(f"Processing item queue id={item['id']} kind={item['kind']}")
         payload = json.loads(item["payload"])
-        if item["kind"] == "session_note":
-            result = analyse_session_note(payload["notes"], flowchart)
-
-            for skill in result.get("new_skills", []):
-                db.upsert_skill(
-                    conn,
-                    skill["name"],
-                    skill.get("category"),
-                    skill.get("confidence"),
-                    session_id=payload.get("session_id"),
-                )
-
-            for edge in result.get("new_edges", []):
-                db.add_skill_edge(conn, edge["from"], edge["to"], edge["relation"])
-
-            for rec in result.get("recommendations", []):
-                related = (
-                    db.upsert_skill(conn, rec["related_skill"])
-                    if rec.get("related_skill")
-                    else None
-                )
-                db.add_recommendation(conn, rec["text"], related)
-
-            flowchart = db.get_flowchart(conn)
-
-        elif item["kind"] == "chat_message":
-            pass
-
-        db.mark_synced(conn, item["id"])
-        processed += 1
-
+        
+        try:
+            if item["kind"] == "session_note":
+                result = analyse_session_note(payload["notes", flowchart])
+                
+                for skill in result.get("new_skills", []):
+                    logger.info(f"Upserting skill: {skill}")
+                    db.upsert_skill(
+                        conn,
+                        skill["name"],
+                        skill.get("category"),
+                        skill.get("confidence"),
+                        session_id=payload.get("session_id"),
+                    )
+                
+                for edge in result.get("new_edges", []):
+                    logger.info(f"Adding edge: {edge}")
+                    db.add_skill_edge(
+                        conn,
+                        edge["from"],
+                        edge["to"],
+                        edge["relation"],
+                    )
+                
+                for rec in result.get("recommendations", []):
+                    logger.info(f"Adding recommendations: {rec}")
+                    related = (db.upsert_skill(conn, rec["related_skill"]) if rec.get("related_skill") else None)
+                    db.add_recommendation(conn, rec["text"], related)
+                
+                flowchart = db.get_flowchart(conn)
+            
+            elif item["kind"] == "chat_message":
+                logger.debug(f"Skipping chat_message item id={item['id']} (handled live, not via queue)")
+                
+            db.mark_synced(conn, item["id"])
+            processed += 1
+            logger.info(f"Item id={item['id']} marked synced")
+        
+        except Exception:
+            logger.error("Failed processing item id=%s:\n%s", item["id"], traceback.format_exc())
+            raise
+    
+    logger.info(f"Sync finished, processed={processed}")
+    
     return processed

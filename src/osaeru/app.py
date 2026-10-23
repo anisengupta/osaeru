@@ -2,9 +2,11 @@
 
 import threading
 import toga
+import logging
 
 from osaeru import claude_sync, database as db
 from osaeru.pages import chat, flowchart, notes, profile, recommendations
+from osaeru.logging_config import configure
 
 
 class OsaeruApp(toga.App):
@@ -19,7 +21,12 @@ class OsaeruApp(toga.App):
         building the main window with tabs for different features,
         and starting a background thread for syncing with Claude.
         """
+        log_path = configure()
+        logger = logging.getLogger(__name__)
+        logger.info(f"App starting. Logging to {log_path}")
+        
         self.conn = db.connect()
+        logger.info(f"Database connected at {db.default_db_path()}")
 
         tabs = toga.OptionContainer(
             content=[
