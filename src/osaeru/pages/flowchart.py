@@ -36,6 +36,17 @@ DEFAULT_COLOR = "#3B8BD4"
 
 
 def _hierarchy_edges(nodes: List[dict], edges: List[dict]) -> List[Tuple[str, str]]:
+    """Gathers the edges that represent a hierarchy (parent-child) relationship between nodes.
+
+    Args:
+        nodes (List[dict]): A list of node dictionaries, each containing at least a "name" key.
+        edges (List[dict]): A list of edge dictionaries, each containing "from_name", "to_name", 
+        and optionally "relation" keys.
+
+    Returns:
+        List[Tuple[str, str]]: A list of tuples representing the parent-child relationships 
+        between nodes.
+    """
     names = {n["name"] for n in nodes}
     pairs = []
     for e in edges:
@@ -50,6 +61,17 @@ def _hierarchy_edges(nodes: List[dict], edges: List[dict]) -> List[Tuple[str, st
 
 
 def _assign_levels(nodes: List[dict], edges: List[dict]) -> Dict[str, int]:
+    """Assigns a level (depth) to each node based on the hierarchy defined by the edges.
+
+    Args:
+        nodes (List[dict]): A list of node dictionaries, each containing at least a "name" key.
+        edges (List[dict]): A list of edge dictionaries, each containing "from_name", "to_name" 
+        and optionally "relation" keys.
+
+    Returns:
+        Dict[str, int]: A dictionary mapping each node's name to its assigned level (depth) 
+        in the hierarchy.
+    """
     parents = {n["name"]: [] for n in nodes}
     for p, c in _hierarchy_edges(nodes, edges):
         parents[c].append(p)
@@ -58,6 +80,15 @@ def _assign_levels(nodes: List[dict], edges: List[dict]) -> Dict[str, int]:
     visiting: set = set()
 
     def level_of(name: str) -> int:
+        """Gets the level of a node by recursively checking its parents.
+
+        Args:
+            name (str): The name of the node for which to determine the level.
+
+        Returns:
+            int: The level (depth) of the node in the hierarchy, 
+            where 0 is the top level.
+        """
         if name in levels:
             return levels[name]
         visiting.add(name)
@@ -78,6 +109,17 @@ def _assign_levels(nodes: List[dict], edges: List[dict]) -> Dict[str, int]:
 def _layout(
     nodes: List[dict], edges: List[dict]
 ) -> Tuple[Dict[str, Tuple[float, float]], float, float]:
+    """Creates a layout for the flowchart nodes and edges, determining their 
+    positions on a canvas.
+
+    Args:
+        nodes (List[dict]): A list of node dictionaries, each containing at least a "name" key.
+        edges (List[dict]): A list of edge dictionaries, each containing "from_name", "to_name" 
+        and optionally "relation" keys.
+
+    Returns:
+        Tuple[Dict[str, Tuple[float, float]], float, float]: A tuple containing the layout.
+    """
     levels = _assign_levels(nodes, edges)
     parents = {n["name"]: [] for n in nodes}
     for p, c in _hierarchy_edges(nodes, edges):
@@ -118,6 +160,17 @@ def _layout(
 
 
 def _wrap_text(canvas: toga.Canvas, text: str, max_width: float) -> List[str]:
+    """Wraps the given text into multiple lines so that each line fits within 
+    the specified maximum width.
+
+    Args:
+        canvas (toga.Canvas): The canvas used to measure text width.
+        text (str): The text to be wrapped into multiple lines.
+        max_width (float): The maximum width allowed for each line of text.
+
+    Returns:
+        List[str]: A list of strings, where each string is a line of wrapped text.
+    """
     words = text.split()
     lines = []
     current = ""
@@ -141,6 +194,15 @@ def _wrap_text(canvas: toga.Canvas, text: str, max_width: float) -> List[str]:
 
 
 def build(conn) -> toga.Box:
+    """Builds the flowchart interface.
+
+    Args:
+        conn (_type_): Database connection.
+
+    Returns:
+        toga.Box: The flowchart interface box containing the canvas for rendering 
+        the flowchart and status labels.
+    """
     canvas = toga.Canvas(style=Pack(flex=1, height=600))
     status_label = toga.Label("")
     sync_status_label = toga.Label("")
@@ -207,6 +269,14 @@ def build(conn) -> toga.Box:
                     text_fill.write_text(line, x + 6, start_y + i * line_height, font=None)
 
     def on_tap(widget, x, y):
+        """Func to handle tap events on the canvas. It checks if a node was tapped 
+        and updates the detail label accordingly.
+
+        Args:
+            widget (_type_): The widget that triggered the event (canvas).
+            x (_type_): The x-coordinate of the tap event.
+            y (_type_): The y-coordinate of the tap event.
+        """
         for name, (nx, ny) in state["positions"].items():
             if nx <= x <= nx + NODE_WIDTH and ny <= y <= ny + NODE_HEIGHT:
                 node = state["nodes_by_name"][name]
@@ -220,6 +290,12 @@ def build(conn) -> toga.Box:
     canvas.on_press = on_tap
     
     def sync_now(widget):
+        """Syncs the pending items in the sync queue with Claude and updates 
+        the sync status label.
+
+        Args:
+            widget (_type_): The widget that triggered the event (sync button).
+        """
         logger.info("Sync now button pressed")
         try:
             count = claude_sync.run_sync(conn)
