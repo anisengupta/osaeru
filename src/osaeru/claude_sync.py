@@ -64,11 +64,11 @@ def _client() -> Anthropic:
 
 
 def _extract_json(text: str) -> Dict[str, Any]:
-    """Extracts JSON content from a given text string, handling cases where 
+    """Extracts JSON content from a given text string, handling cases where
     the JSON is wrapped in code block formatting.
 
     Args:
-        text (str): The input text containing JSON content, possibly 
+        text (str): The input text containing JSON content, possibly
         wrapped in code block formatting.
 
     Returns:

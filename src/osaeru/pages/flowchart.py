@@ -15,10 +15,10 @@ logger = logging.getLogger(__name__)
 
 NODE_WIDTH = 170
 NODE_HEIGHT = 60
-LEVEL_GAP_Y = 110   
-NODE_GAP_X = 40     
+LEVEL_GAP_Y = 110
+NODE_GAP_X = 40
 MARGIN = 40
-MAX_PER_ROW = 6     
+MAX_PER_ROW = 6
 
 HIERARCHY_RELATIONS = {"leads_to"}
 REVERSED_RELATIONS = {"depends_on"}
@@ -40,11 +40,11 @@ def _hierarchy_edges(nodes: List[dict], edges: List[dict]) -> List[Tuple[str, st
 
     Args:
         nodes (List[dict]): A list of node dictionaries, each containing at least a "name" key.
-        edges (List[dict]): A list of edge dictionaries, each containing "from_name", "to_name", 
+        edges (List[dict]): A list of edge dictionaries, each containing "from_name", "to_name",
         and optionally "relation" keys.
 
     Returns:
-        List[Tuple[str, str]]: A list of tuples representing the parent-child relationships 
+        List[Tuple[str, str]]: A list of tuples representing the parent-child relationships
         between nodes.
     """
     names = {n["name"] for n in nodes}
@@ -65,11 +65,11 @@ def _assign_levels(nodes: List[dict], edges: List[dict]) -> Dict[str, int]:
 
     Args:
         nodes (List[dict]): A list of node dictionaries, each containing at least a "name" key.
-        edges (List[dict]): A list of edge dictionaries, each containing "from_name", "to_name" 
+        edges (List[dict]): A list of edge dictionaries, each containing "from_name", "to_name"
         and optionally "relation" keys.
 
     Returns:
-        Dict[str, int]: A dictionary mapping each node's name to its assigned level (depth) 
+        Dict[str, int]: A dictionary mapping each node's name to its assigned level (depth)
         in the hierarchy.
     """
     parents = {n["name"]: [] for n in nodes}
@@ -86,7 +86,7 @@ def _assign_levels(nodes: List[dict], edges: List[dict]) -> Dict[str, int]:
             name (str): The name of the node for which to determine the level.
 
         Returns:
-            int: The level (depth) of the node in the hierarchy, 
+            int: The level (depth) of the node in the hierarchy,
             where 0 is the top level.
         """
         if name in levels:
@@ -109,12 +109,12 @@ def _assign_levels(nodes: List[dict], edges: List[dict]) -> Dict[str, int]:
 def _layout(
     nodes: List[dict], edges: List[dict]
 ) -> Tuple[Dict[str, Tuple[float, float]], float, float]:
-    """Creates a layout for the flowchart nodes and edges, determining their 
+    """Creates a layout for the flowchart nodes and edges, determining their
     positions on a canvas.
 
     Args:
         nodes (List[dict]): A list of node dictionaries, each containing at least a "name" key.
-        edges (List[dict]): A list of edge dictionaries, each containing "from_name", "to_name" 
+        edges (List[dict]): A list of edge dictionaries, each containing "from_name", "to_name"
         and optionally "relation" keys.
 
     Returns:
@@ -133,12 +133,14 @@ def _layout(
     rows: List[List[str]] = []
     for level in sorted(by_level):
         names = by_level[level]
+
         def key(name: str) -> Tuple[float, str]:
             px = [order_index[p] for p in parents[name] if p in order_index]
             return (sum(px) / len(px) if px else float("inf"), name)
+
         names.sort(key=key)
         for i in range(0, len(names), MAX_PER_ROW):
-            chunk = names[i:i + MAX_PER_ROW]
+            chunk = names[i : i + MAX_PER_ROW]
             rows.append(chunk)
             for j, name in enumerate(chunk):
                 order_index[name] = (j + 0.5) / len(chunk)
@@ -160,7 +162,7 @@ def _layout(
 
 
 def _wrap_text(canvas: toga.Canvas, text: str, max_width: float) -> List[str]:
-    """Wraps the given text into multiple lines so that each line fits within 
+    """Wraps the given text into multiple lines so that each line fits within
     the specified maximum width.
 
     Args:
@@ -174,7 +176,7 @@ def _wrap_text(canvas: toga.Canvas, text: str, max_width: float) -> List[str]:
     words = text.split()
     lines = []
     current = ""
-    
+
     for word in words:
         trial = f"{current} {word}".strip()
         try:
@@ -186,10 +188,10 @@ def _wrap_text(canvas: toga.Canvas, text: str, max_width: float) -> List[str]:
         else:
             lines.append(current)
             current = word
-    
+
     if current:
         lines.append(current)
-    
+
     return lines[:3]
 
 
@@ -200,16 +202,16 @@ def build(conn) -> toga.Box:
         conn (_type_): Database connection.
 
     Returns:
-        toga.Box: The flowchart interface box containing the canvas for rendering 
+        toga.Box: The flowchart interface box containing the canvas for rendering
         the flowchart and status labels.
     """
     canvas = toga.Canvas(style=Pack(flex=1, height=600))
     status_label = toga.Label("")
     sync_status_label = toga.Label("")
     detail_label = toga.Label("Tap a node to see details.", style=Pack(padding_top=8))
-    
+
     state = {"positions": {}, "nodes_by_name": {}}
-    
+
     def redraw(widget=None):
         canvas.context.clear()
         graph = db.get_flowchart(conn)
@@ -218,7 +220,9 @@ def build(conn) -> toga.Box:
         state["nodes_by_name"] = {n["name"]: n for n in nodes}
 
         if not nodes:
-            status_label.text = "No skills recorded yet - add session notes to build this out"
+            status_label.text = (
+                "No skills recorded yet - add session notes to build this out"
+            )
             state["positions"] = {}
             return
         status_label.text = f"{len(nodes)} skills, {len(edges)} connections"
@@ -256,7 +260,9 @@ def build(conn) -> toga.Box:
 
         for node in nodes:
             x, y = positions[node["name"]]
-            color = CONFIDENCE_COLORS.get((node.get("confidence") or "").lower(), DEFAULT_COLOR)
+            color = CONFIDENCE_COLORS.get(
+                (node.get("confidence") or "").lower(), DEFAULT_COLOR
+            )
 
             with canvas.context.Fill(color=color) as fill:
                 fill.rect(x, y, NODE_WIDTH, NODE_HEIGHT)
@@ -266,10 +272,12 @@ def build(conn) -> toga.Box:
                 line_height = 16
                 start_y = y + NODE_HEIGHT / 2 - (len(lines) * line_height) / 2
                 for i, line in enumerate(lines):
-                    text_fill.write_text(line, x + 6, start_y + i * line_height, font=None)
+                    text_fill.write_text(
+                        line, x + 6, start_y + i * line_height, font=None
+                    )
 
     def on_tap(widget, x, y):
-        """Func to handle tap events on the canvas. It checks if a node was tapped 
+        """Func to handle tap events on the canvas. It checks if a node was tapped
         and updates the detail label accordingly.
 
         Args:
@@ -286,11 +294,11 @@ def build(conn) -> toga.Box:
                 )
                 return
         detail_label.text = "Tap a node to see details."
-    
+
     canvas.on_press = on_tap
-    
+
     def sync_now(widget):
-        """Syncs the pending items in the sync queue with Claude and updates 
+        """Syncs the pending items in the sync queue with Claude and updates
         the sync status label.
 
         Args:
@@ -304,14 +312,19 @@ def build(conn) -> toga.Box:
             logger.error("sync_now failed: %s", e)
             sync_status_label.text = f"Sync failed: {e}"
         redraw()
-    
+
     refresh_button = toga.Button("Refresh", on_press=redraw)
     sync_button = toga.Button("Sync now", on_press=sync_now)
-    
-    legend = toga.Label("🟧 still learning    🟪 comfortable    🟩 reliable    🟦 unrated    ┄ counters", style=Pack(padding_top=8))
-    
-    scroll = toga.ScrollContainer(content=canvas, horizontal=True, vertical=True, style=Pack(flex=1))
-    
+
+    legend = toga.Label(
+        "🟧 still learning    🟪 comfortable    🟩 reliable    🟦 unrated    ┄ counters",
+        style=Pack(padding_top=8),
+    )
+
+    scroll = toga.ScrollContainer(
+        content=canvas, horizontal=True, vertical=True, style=Pack(flex=1)
+    )
+
     box = toga.Box(style=Pack(direction=COLUMN, padding=16))
     box.add(refresh_button)
     box.add(sync_button)
@@ -320,7 +333,7 @@ def build(conn) -> toga.Box:
     box.add(legend)
     box.add(scroll)
     box.add(detail_label)
-    
+
     redraw()
-    
+
     return box
