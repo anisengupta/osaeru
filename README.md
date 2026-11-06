@@ -41,17 +41,11 @@ touching iOS/Xcode at all.
 
 ## Setting your Claude API key
 
-The app reads the key from the OS keychain via `keyring`, never from a
-config file or the database. For now, set it once from a Python shell in
-your dev environment:
-
-```python
-from osaeru import claude_sync
-claude_sync.set_api_key("sk-ant-...")
-```
-
-Eventually this should move into a small Settings screen in the app itself
-so you're not doing it from a REPL.
+Open the **Settings** tab, paste your key and press Save. The app checks the
+key against the API before saving it (if you're offline it saves anyway and
+says so). On desktop the key goes in the OS keychain via `keyring`; on iOS,
+where `keyring` has no backend, it goes in a private file in the app's
+sandboxed data directory. It is never written to the database or a config file.
 
 ## Building for iOS / your iPad
 
@@ -71,7 +65,6 @@ days. A $99/year Apple Developer account removes that limit.
 
 - `notifications.py` is a stub - the local notification API needs
   confirming against whatever Toga/Briefcase version you land on.
-- No Settings screen yet for entering the API key from within the app.
 - `flowchart.py` uses a simple circular layout - fine for a few dozen
   skills, will get messy well beyond that.
 - No conflict handling if you edit the same session note from two devices

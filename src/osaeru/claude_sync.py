@@ -14,7 +14,12 @@ ask Claude to
 from __future__ import annotations
 import json
 from typing import Any, Optional, Dict, List
+import os
+from pathlib import Path
 import keyring
+import keyring.errors
+import keyring.backends.fail
+import anthropic
 from anthropic import Anthropic
 import logging
 import traceback
@@ -25,22 +30,20 @@ from osaeru import database as db
 logger = logging.getLogger(__name__)
 
 
-def get_api_key() -> Optional[str]:
-    """Retrieves the Anthropic API key from the OS keychain.
+_key_file = Path.home() / ".osaeru" / "api_key"
+
+
+def _keyring_available() -> bool:
+    """Checks if the OS keyring is available for storing and retrieving
+    the Anthropic API key.
 
     Returns:
-        Optional[str]: The Anthropic API key if it exists, otherwise None.
+        bool: True if the keyring is available, False otherwise.
     """
-    return keyring.get_password(KEYRING_SERVICE, KEYRING_KEY)
-
-
-def set_api_key(api_key: str) -> None:
-    """Sets the Anthropic API key in the OS keychain.
-
-    Args:
-        api_key (str): The Anthropic API key to store.
-    """
-    keyring.set_password(KEYRING_SERVICE, KEYRING_KEY, api_key)
+    try:
+        return not isinstance(keyring.get_keyring(), keyring.backends.fail.Keyring)
+    except Exception:
+        return False
 
 
 def _client() -> Anthropic:
@@ -81,6 +84,93 @@ def _extract_json(text: str) -> Dict[str, Any]:
             cleaned = cleaned[4:]
 
     return json.loads(cleaned.strip())
+
+
+def init_storage(data_dir: Path) -> None:
+    """Initialises the storage for the Anthropic API key, setting the
+    path for the key file based on the provided data directory.
+
+    Args:
+        data_dir (Path): The directory where the API key file should be stored.
+    """
+    global _key_file
+    _key_file = Path(data_dir) / "api_key"
+
+
+def get_api_key() -> Optional[str]:
+    """Retrieves the Anthropic API key from the OS keychain.
+
+    Returns:
+        Optional[str]: The Anthropic API key if it exists, otherwise None.
+    """
+    if _keyring_available():
+        try:
+            key = keyring.get_password(KEYRING_SERVICE, KEYRING_KEY)
+            if key:
+                return key
+        except keyring.errors.KeyringError as e:
+            logger.warning("Keyring read failed, trying file: %s", e)
+    if _key_file.exists():
+        return _key_file.read_text().strip() or None
+
+    return None
+
+
+def set_api_key(api_key: str) -> None:
+    """Sets the Anthropic API key in the OS keychain.
+
+    Args:
+        api_key (str): The Anthropic API key to store.
+    """
+    api_key = api_key.strip()
+    if _keyring_available():
+        try:
+            keyring.set_password(KEYRING_SERVICE, KEYRING_KEY, api_key)
+            return "keychain"
+        except keyring.errors.KeyringError as e:
+            logger.warning("Keyring write failed, using file: %s", e)
+
+    _key_file.parent.mkdir(parents=True, exist_ok=True)
+    _key_file.write_text(api_key)
+    os.chmod(_key_file, 0o600)
+
+    return "app storage"
+
+
+def clear_api_key() -> None:
+    """Cleared the stored Anthropic API key from both the OS keychain
+    and the local file storage.
+    """
+    if _keyring_available():
+        try:
+            keyring.delete_password(KEYRING_SERVICE, KEYRING_KEY)
+        except keyring.errors.KeyringError:
+            pass
+    _key_file.unlink(missing_ok=True)
+
+
+def verify_api_key(api_key: str) -> Optional[bool]:
+    """Verifies the provided Anthropic API key by attempting to list models.
+
+    Args:
+        api_key (str): The Anthropic API key to verify.
+
+    Returns:
+        Optional[bool]: True if the key is valid, False if invalid, and None
+        if verification failed due to an unexpected error.
+    """
+    try:
+        Anthropic(api_key=api_key.strip(), timeout=10.0, max_retries=0).models.list(
+            limit=1
+        )
+        return True
+    except anthropic.AuthenticationError:
+        return False
+    except anthropic.PermissionDeniedError:
+        return False
+    except Exception as e:
+        logger.info("Couldn't verify API key: %s", e)
+        return None
 
 
 def analyse_session_note(
