@@ -12,18 +12,44 @@ logger = logging.getLogger(__name__)
 
 
 def _describe_stored_key() -> str:
+    """Describes the currently stored API key, if any, by returning 
+    a string that indicates whether an API key is saved and, if so, 
+    shows the last four characters of the key.
+
+    Returns:
+        str: A message indicating the status of the stored API key.
+    """
     key = claude_sync.get_api_key()
     if not key:
-        return "No API ket stored"
+        return "No API key stored"
     return f"API key saved, ending with {key[-4:]}"
 
 
 def build(conn) -> toga.Box:
+    """Builds the settings page for the Osaeru application, allowing users to 
+    view, save, and remove their Claude API key.
+
+    Args:
+        conn (_type_): The database connection object, used for any necessary 
+        database interactions.
+
+    Returns:
+        toga.Box: A Toga Box widget containing the settings page layout, 
+        including labels, input fields, and buttons for managing the API key.
+    """
     current_label = toga.Label(_describe_stored_key(), style=Pack(padding_top=8))
     key_input = toga.PasswordInput(placeholder="sk-ant-...", style=Pack(flex=1))
     status_label = toga.Label("", style=Pack(padding_top=8))
     
     async def on_save(widget):
+        """Async func to handle the saving of the API key entered by the user. 
+        It validates the key, checks it with the Anthropic API, and 
+        saves it if valid.
+
+        Args:
+            widget (_type_): The widget that triggered the save action, 
+            typically the save button.
+        """
         key = (key_input.value or "").strip()
         if not key:
             status_label.text = "Please enter a valid API key"
@@ -55,6 +81,13 @@ def build(conn) -> toga.Box:
             save_button.enabled = True
     
     def on_remove(widget):
+        """Handles the removal of the stored API key when the user 
+        clicks the remove button.
+
+        Args:
+            widget (_type_): The widget that triggered the remove action, 
+            typically the remove button.
+        """
         claude_sync.clear_api_key()
         current_label.text = _describe_stored_key()
         status_label.text = "API key removed."

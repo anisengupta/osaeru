@@ -34,6 +34,12 @@ _key_file = Path.home() / ".osaeru" / "api_key"
 
 
 def _keyring_available() -> bool:
+    """Checks if the OS keyring is available for storing and retrieving 
+    the Anthropic API key.
+
+    Returns:
+        bool: True if the keyring is available, False otherwise.
+    """
     try:
         return not isinstance(keyring.get_keyring(), keyring.backends.fail.Keyring)
     except Exception:
@@ -81,6 +87,12 @@ def _extract_json(text: str) -> Dict[str, Any]:
 
 
 def init_storage(data_dir: Path) -> None:
+    """Initialises the storage for the Anthropic API key, setting the 
+    path for the key file based on the provided data directory.
+
+    Args:
+        data_dir (Path): The directory where the API key file should be stored.
+    """
     global _key_file
     _key_file = Path(data_dir) / "api_key"
 
@@ -126,6 +138,9 @@ def set_api_key(api_key: str) -> None:
 
 
 def clear_api_key() -> None:
+    """Cleared the stored Anthropic API key from both the OS keychain 
+    and the local file storage.
+    """
     if _keyring_available():
         try:
             keyring.delete_password(KEYRING_SERVICE, KEYRING_KEY)
@@ -135,6 +150,15 @@ def clear_api_key() -> None:
 
 
 def verify_api_key(api_key: str) -> Optional[bool]:
+    """Verifies the provided Anthropic API key by attempting to list models.
+
+    Args:
+        api_key (str): The Anthropic API key to verify.
+
+    Returns:
+        Optional[bool]: True if the key is valid, False if invalid, and None 
+        if verification failed due to an unexpected error.
+    """
     try:
         Anthropic(api_key=api_key.strip(), timeout=10.0, max_retries=0).models.list(limit=1)
         return True
