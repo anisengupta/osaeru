@@ -5,7 +5,7 @@ import toga
 import logging
 
 from osaeru import claude_sync, database as db
-from osaeru.pages import chat, flowchart, notes, profile, recommendations
+from osaeru.pages import chat, flowchart, notes, profile, recommendations, settings
 from osaeru.logging_config import configure
 
 
@@ -24,6 +24,8 @@ class OsaeruApp(toga.App):
         log_path = configure()
         logger = logging.getLogger(__name__)
         logger.info(f"App starting. Logging to {log_path}")
+        
+        claude_sync.init_storage(self.paths.data)
 
         self.conn = db.connect()
         logger.info(f"Database connected at {db.default_db_path()}")
@@ -35,6 +37,7 @@ class OsaeruApp(toga.App):
                 ("Flowchart", flowchart.build(self.conn)),
                 ("Chat", chat.build(self.conn)),
                 ("Recommendations", recommendations.build(self.conn)),
+                ("Settings", settings.build(self.conn)),
             ]
         )
 
