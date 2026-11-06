@@ -34,7 +34,7 @@ _key_file = Path.home() / ".osaeru" / "api_key"
 
 
 def _keyring_available() -> bool:
-    """Checks if the OS keyring is available for storing and retrieving 
+    """Checks if the OS keyring is available for storing and retrieving
     the Anthropic API key.
 
     Returns:
@@ -87,7 +87,7 @@ def _extract_json(text: str) -> Dict[str, Any]:
 
 
 def init_storage(data_dir: Path) -> None:
-    """Initialises the storage for the Anthropic API key, setting the 
+    """Initialises the storage for the Anthropic API key, setting the
     path for the key file based on the provided data directory.
 
     Args:
@@ -112,7 +112,7 @@ def get_api_key() -> Optional[str]:
             logger.warning("Keyring read failed, trying file: %s", e)
     if _key_file.exists():
         return _key_file.read_text().strip() or None
-    
+
     return None
 
 
@@ -129,16 +129,16 @@ def set_api_key(api_key: str) -> None:
             return "keychain"
         except keyring.errors.KeyringError as e:
             logger.warning("Keyring write failed, using file: %s", e)
-    
+
     _key_file.parent.mkdir(parents=True, exist_ok=True)
     _key_file.write_text(api_key)
     os.chmod(_key_file, 0o600)
-    
+
     return "app storage"
 
 
 def clear_api_key() -> None:
-    """Cleared the stored Anthropic API key from both the OS keychain 
+    """Cleared the stored Anthropic API key from both the OS keychain
     and the local file storage.
     """
     if _keyring_available():
@@ -156,11 +156,13 @@ def verify_api_key(api_key: str) -> Optional[bool]:
         api_key (str): The Anthropic API key to verify.
 
     Returns:
-        Optional[bool]: True if the key is valid, False if invalid, and None 
+        Optional[bool]: True if the key is valid, False if invalid, and None
         if verification failed due to an unexpected error.
     """
     try:
-        Anthropic(api_key=api_key.strip(), timeout=10.0, max_retries=0).models.list(limit=1)
+        Anthropic(api_key=api_key.strip(), timeout=10.0, max_retries=0).models.list(
+            limit=1
+        )
         return True
     except anthropic.AuthenticationError:
         return False

@@ -12,8 +12,8 @@ logger = logging.getLogger(__name__)
 
 
 def _describe_stored_key() -> str:
-    """Describes the currently stored API key, if any, by returning 
-    a string that indicates whether an API key is saved and, if so, 
+    """Describes the currently stored API key, if any, by returning
+    a string that indicates whether an API key is saved and, if so,
     shows the last four characters of the key.
 
     Returns:
@@ -26,28 +26,28 @@ def _describe_stored_key() -> str:
 
 
 def build(conn) -> toga.Box:
-    """Builds the settings page for the Osaeru application, allowing users to 
+    """Builds the settings page for the Osaeru application, allowing users to
     view, save, and remove their Claude API key.
 
     Args:
-        conn (_type_): The database connection object, used for any necessary 
+        conn (_type_): The database connection object, used for any necessary
         database interactions.
 
     Returns:
-        toga.Box: A Toga Box widget containing the settings page layout, 
+        toga.Box: A Toga Box widget containing the settings page layout,
         including labels, input fields, and buttons for managing the API key.
     """
     current_label = toga.Label(_describe_stored_key(), style=Pack(padding_top=8))
     key_input = toga.PasswordInput(placeholder="sk-ant-...", style=Pack(flex=1))
     status_label = toga.Label("", style=Pack(padding_top=8))
-    
+
     async def on_save(widget):
-        """Async func to handle the saving of the API key entered by the user. 
-        It validates the key, checks it with the Anthropic API, and 
+        """Async func to handle the saving of the API key entered by the user.
+        It validates the key, checks it with the Anthropic API, and
         saves it if valid.
 
         Args:
-            widget (_type_): The widget that triggered the save action, 
+            widget (_type_): The widget that triggered the save action,
             typically the save button.
         """
         key = (key_input.value or "").strip()
@@ -61,11 +61,13 @@ def build(conn) -> toga.Box:
         save_button.enabled = False
         status_label.text = "Checking key..."
         try:
-            ok = await asyncio.get_running_loop().run_in_executor(None, claude_sync.verify_api_key, key)
+            ok = await asyncio.get_running_loop().run_in_executor(
+                None, claude_sync.verify_api_key, key
+            )
             if ok is False:
                 status_label.text = "Anthropic rejected that key, Not saved."
                 return
-            
+
             where = claude_sync.set_api_key(key)
             key_input.value = ""
             current_label.text = _describe_stored_key()
@@ -79,26 +81,28 @@ def build(conn) -> toga.Box:
             status_label.text = f"Couldn't save key: {e}"
         finally:
             save_button.enabled = True
-    
+
     def on_remove(widget):
-        """Handles the removal of the stored API key when the user 
+        """Handles the removal of the stored API key when the user
         clicks the remove button.
 
         Args:
-            widget (_type_): The widget that triggered the remove action, 
+            widget (_type_): The widget that triggered the remove action,
             typically the remove button.
         """
         claude_sync.clear_api_key()
         current_label.text = _describe_stored_key()
         status_label.text = "API key removed."
-    
+
     save_button = toga.Button("Save", on_press=on_save, style=Pack(padding_left=8))
-    remove_button = toga.Button("Remove saved key", on_press=on_remove, style=Pack(padding_top=8))
-    
+    remove_button = toga.Button(
+        "Remove saved key", on_press=on_remove, style=Pack(padding_top=8)
+    )
+
     key_row = toga.Box(style=Pack(direction=ROW, padding_top=4))
     key_row.add(key_input)
     key_row.add(save_button)
-    
+
     box = toga.Box(style=Pack(direction=COLUMN, padding=16))
     box.add(toga.Label("Claude API key", style=Pack(font_weight="bold")))
     box.add(current_label)
@@ -111,5 +115,5 @@ def build(conn) -> toga.Box:
             style=Pack(padding_top=16),
         )
     )
-    
+
     return box

@@ -24,7 +24,7 @@ class OsaeruApp(toga.App):
         log_path = configure()
         logger = logging.getLogger(__name__)
         logger.info(f"App starting. Logging to {log_path}")
-        
+
         claude_sync.init_storage(self.paths.data)
 
         self.conn = db.connect()
