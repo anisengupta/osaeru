@@ -1,0 +1,79 @@
+"""Page containing funcs to render the chat interface and handle user input."""
+
+import toga
+from toga.style import Pack
+from toga.style.pack import COLUMN, ROW
+
+from osaeru import claude_sync, database as db
+
+
+def build(conn) -> toga.Box:
+    """Builds the chat interface.
+
+    Args:
+        conn (_type_): Database connection
+
+    Returns:
+        toga.Box: The chat interface box containing the history view,
+        message input, and send button.
+    """
+    history_view = toga.MultilineTextInput(readonly=True, style=Pack(flex=1))
+    message_input = toga.TextInput(
+        placeholder="Talk about the session...", style=Pack(flex=1)
+    )
+    status_label = toga.Label("")
+
+    def render_history():
+        """Renders the chat history in the history view."""
+        lines = []
+        for m in db.list_chat_messages(conn):
+            speaker = "You" if m["role"] == "user" else "Coach"
+            lines.append(f"{speaker}: {m['content']}")
+
+        history_view.value = "\n\n".join(lines)
+
+    def on_send(widget):
+        """Handles the send button press event. It saves the user's message
+        to the database and attempts to get a reply from Claude.
+        If Claude is unreachable, it saves the message for later processing.
+
+        Args:
+            widget (_type_): The widget that triggered the event (send button).
+        """
+        text = message_input.value.strip()
+        if not text:
+            return
+
+        db.add_chat_message(conn, "user", text)
+        message_input.value = ""
+        render_history()
+
+        try:
+            history = [
+                {"role": m["role"], "content": m["content"]}
+                for m in db.list_chat_messages(conn)
+                if m["role"] in ("user", "assistant")
+            ]
+            flowchart = db.get_flowchart(conn)
+            reply = claude_sync.chat_reply(history, flowchart)
+            db.add_chat_message(conn, "assistant", reply)
+            status_label.text = ""
+        except Exception:
+            status_label.text = "Couldn't reach Claude - message saved, will need a reply once you're online"
+
+        render_history()
+
+    send_button = toga.Button("Send", on_press=on_send)
+
+    input_row = toga.Box(style=Pack(direction=ROW, padding_top=8))
+    input_row.add(message_input)
+    input_row.add(send_button)
+
+    box = toga.Box(style=Pack(direction=COLUMN, padding=16))
+    box.add(history_view)
+    box.add(input_row)
+    box.add(status_label)
+
+    render_history()
+
+    return box
