@@ -1,0 +1,4 @@
+<p class="sync-status {{ 'is-ok' if ok else 'is-error' }}" role="status">
+  {{ message }}
+  {% if ok and message and "new skill" in message %}<a href="/flowchart">Open the flowchart</a>{% endif %}
+</p>
