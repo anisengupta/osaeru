@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Profile – Osaeru{% endblock %}
+{% block content %}
+<div class="narrow">
+  <h1>Profile</h1>
+  <p class="lede">Claude uses this to pitch its suggestions at the right level.</p>
+  <form method="post" action="/profile" class="stack form-grid">
+    <label class="field"><span>Age</span>
+      <input type="number" name="age" inputmode="numeric" min="5" max="100" value="{{ profile.age if profile else '' }}" required></label>
+    <label class="field"><span>Sex</span>
+      <select name="sex">
+        {% for s in sexes %}<option value="{{ s }}"{% if profile and profile.sex == s %} selected{% endif %}>{{ s|capitalize }}</option>{% endfor %}
+      </select></label>
+    <label class="field"><span>Weight (kg)</span>
+      <input type="number" name="weight_kg" inputmode="decimal" step="0.1" min="20" max="250" value="{{ profile.weight_kg if profile else '' }}" required></label>
+    <label class="field"><span>Sessions per week</span>
+      <input type="number" name="sessions_per_week" inputmode="decimal" step="0.5" min="0" max="21" value="{{ profile.sessions_per_week if profile else '' }}" required></label>
+    {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+    {% if saved %}<p class="ok" role="status">Profile saved.</p>{% endif %}
+    <button type="submit" class="button">Save profile</button>
+  </form>
+</div>
+{% endblock %}

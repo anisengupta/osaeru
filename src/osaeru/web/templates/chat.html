@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Chat – Osaeru{% endblock %}
+{% block content %}
+<section class="chat" aria-label="Chat with your coach">
+  <div class="chat-log" id="chat-log">
+    {% for m in messages %}
+    <div class="msg msg-{{ m.role }}">
+      <span class="msg-who">{{ "You" if m.role == "user" else "Coach" }}</span>
+      <p class="msg-text">{{ m.content }}</p>
+    </div>
+    {% else %}
+    <p class="empty">Ask about anything from your training: a position you keep losing, what to drill this week, how to approach a bigger partner.</p>
+    {% endfor %}
+    <div class="msg msg-assistant msg-typing htmx-indicator" id="typing" aria-hidden="true">
+      <span class="msg-who">Coach</span>
+      <p class="msg-text"><span class="spinner"></span> Thinking…</p>
+    </div>
+  </div>
+  {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+  <form method="post" action="/chat" class="chat-form" hx-indicator="#typing" hx-disabled-elt="find button, find textarea">
+    <label class="visually-hidden" for="message">Message</label>
+    <textarea id="message" name="message" rows="2" placeholder="Talk about the session…" required></textarea>
+    <button type="submit" class="button">Send</button>
+  </form>
+</section>
+{% endblock %}
