@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Notes – Osaeru{% endblock %}
+{% block content %}
+<div class="split">
+  <section class="compose" aria-labelledby="new-note">
+    <h1 id="new-note">How was training?</h1>
+    <form method="post" action="/notes" class="stack" hx-disabled-elt="find button">
+      <fieldset class="feelings">
+        <legend>How did it feel?</legend>
+        <div class="segmented">
+          {% for f in feelings %}
+          <label><input type="radio" name="feeling" value="{{ f }}"{% if loop.index == 2 %} checked{% endif %}><span>{{ f|capitalize }}</span></label>
+          {% endfor %}
+        </div>
+      </fieldset>
+      <label class="field">
+        <span>What happened?</span>
+        <textarea name="notes" rows="9" placeholder="What you drilled, what worked in rolls, where you got stuck…" required></textarea>
+      </label>
+      {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+      <button type="submit" class="button">Save note</button>
+    </form>
+    {% with auto = (saved and has_key) %}{% include "_pending.html" %}{% endwith %}
+  </section>
+
+  <section class="history" aria-labelledby="past">
+    <h2 id="past">Past sessions</h2>
+    {% if sessions %}
+    <ol class="sessions">
+      {% for s in sessions %}
+      <li class="session">
+        <div class="session-meta">
+          <time datetime="{{ s.occurred_at }}">{{ s.occurred_at|day }}</time>
+          {% if s.feeling %}<span class="feeling feeling-{{ s.feeling }}">{{ s.feeling|capitalize }}</span>{% endif %}
+        </div>
+        <p class="session-text">{{ s.notes }}</p>
+      </li>
+      {% endfor %}
+    </ol>
+    {% else %}
+    <p class="empty">Your sessions will appear here. Write your first note after your next class.</p>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}
