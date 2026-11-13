@@ -30,7 +30,6 @@ from osaeru import database as db
 logger = logging.getLogger(__name__)
 
 
-ENV_KEY = "ANTHROPIC_API_KEY"
 _key_file = Path.home() / ".osaeru" / "api_key"
 
 
@@ -87,20 +86,6 @@ def _extract_json(text: str) -> Dict[str, Any]:
     return json.loads(cleaned.strip())
 
 
-def key_source() -> Optional[str]:
-    if os.environ.get(ENV_KEY):
-        return "environment"
-    if _keyring_available():
-        try:
-            if keyring.get_password(KEYRING_SERVICE, KEYRING_KEY):
-                return "keychain"
-        except keyring.errors.KeyringError:
-            pass
-    if _key_file.exists() and _key_file.read_text().strip():
-        return "app storage"
-    return None
-
-
 def init_storage(data_dir: Path) -> None:
     """Initialises the storage for the Anthropic API key, setting the
     path for the key file based on the provided data directory.
@@ -118,9 +103,6 @@ def get_api_key() -> Optional[str]:
     Returns:
         Optional[str]: The Anthropic API key if it exists, otherwise None.
     """
-    env_key = os.environ.get(ENV_KEY)
-    if env_key:
-        return env_key.strip()
     if _keyring_available():
         try:
             key = keyring.get_password(KEYRING_SERVICE, KEYRING_KEY)
