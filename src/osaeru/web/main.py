@@ -93,7 +93,9 @@ def pending_note_count(conn: sqlite3.Connection) -> int:
     Returns:
         int: The count of pending session notes.
     """
-    return sum(1 for item in db.pending_sync_items(conn) if item["kind"] == "session_note")
+    return sum(
+        1 for item in db.pending_sync_items(conn) if item["kind"] == "session_note"
+    )
 
 
 def new_recommendations(conn: sqlite3.Connection) -> List[Dict[str, Any]]:
@@ -121,7 +123,7 @@ def recommendation_counts(conn: sqlite3.Connection) -> Dict[str, int]:
     Args:
         conn (sqlite3.Connection): A connection object to the SQLite database.
     Returns:
-        Dict[str, int]: A dictionary where the keys are recommendation statuses 
+        Dict[str, int]: A dictionary where the keys are recommendation statuses
         and the values are the counts of recommendations for each status.
     """
     return dict(Counter(r["status"] for r in db.list_recommendations(conn)))
@@ -139,7 +141,9 @@ def render(request: Request, template: str, active: str, **context) -> HTMLRespo
         HTMLResponse: The rendered HTML response.
     """
     return templates.TemplateResponse(
-        request, template, {"active": active, "has_key": bool(claude_sync.get_api_key()), **context}
+        request,
+        template,
+        {"active": active, "has_key": bool(claude_sync.get_api_key()), **context},
     )
 
 
@@ -148,10 +152,10 @@ def redirect(path: str, **params) -> RedirectResponse:
     Generate a redirect response with optional query parameters.
     Args:
         path (str): The target URL or path to redirect to.
-        **params: Arbitrary keyword arguments representing query parameters. 
+        **params: Arbitrary keyword arguments representing query parameters.
                   Only parameters with non-None values will be included in the query string.
     Returns:
-        RedirectResponse: A response object that redirects the client to the specified path 
+        RedirectResponse: A response object that redirects the client to the specified path
                           with a 303 status code (See Other).
     """
     query = urlencode({k: v for k, v in params.items() if v is not None})
@@ -161,7 +165,7 @@ def redirect(path: str, **params) -> RedirectResponse:
 def friendly_error(exc: Exception) -> str:
     """
     Generate a user-friendly error message based on the provided exception.
-    This function interprets specific exceptions related to the Claude API 
+    This function interprets specific exceptions related to the Claude API
     and returns a corresponding error message that can be displayed to the user.
     Args:
         exc (Exception): The exception to interpret.
@@ -200,7 +204,9 @@ def home() -> RedirectResponse:
 
 
 @app.get("/notes", response_class=HTMLResponse)
-def notes_page(request: Request, saved: Optional[int] = None, error: Optional[str] = None):
+def notes_page(
+    request: Request, saved: Optional[int] = None, error: Optional[str] = None
+):
     """
     Renders the notes page with the provided request and optional parameters.
     Args:
@@ -208,7 +214,7 @@ def notes_page(request: Request, saved: Optional[int] = None, error: Optional[st
         saved (Optional[int], optional): An optional parameter indicating the ID of a saved note. Defaults to None.
         error (Optional[str], optional): An optional error message to display on the page. Defaults to None.
     Returns:
-        HttpResponse: The rendered notes page with the provided context, including sessions, pending notes count, 
+        HttpResponse: The rendered notes page with the provided context, including sessions, pending notes count,
                       feelings, and any saved or error information.
     """
     with open_db() as conn:
@@ -228,15 +234,15 @@ def notes_page(request: Request, saved: Optional[int] = None, error: Optional[st
 def save_note(notes: str = Form(""), feeling: str = Form("")):
     """
     Handles saving a note for a session.
-    This function processes the input notes and feeling, validates the notes, 
-    and saves the session note to the database. If the notes are empty, it redirects 
-    the user back to the notes page with an error message. The feeling is only saved 
+    This function processes the input notes and feeling, validates the notes,
+    and saves the session note to the database. If the notes are empty, it redirects
+    the user back to the notes page with an error message. The feeling is only saved
     if it matches one of the predefined feelings.
     Args:
         notes (str): The content of the note provided by the user. Defaults to an empty string.
         feeling (str): The feeling associated with the note. Defaults to an empty string.
     Returns:
-        A redirect response to the notes page, either with an error message if the notes 
+        A redirect response to the notes page, either with an error message if the notes
         are empty or with a success indicator if the note is saved successfully.
     """
     notes = notes.strip()
@@ -323,7 +329,9 @@ def flowchart_data() -> JSONResponse:
         JSONResponse: A JSON response containing the flowchart data and new recommendations.
     """
     with open_db() as conn:
-        return JSONResponse(flowchart_payload(db.get_flowchart(conn), new_recommendations(conn)))
+        return JSONResponse(
+            flowchart_payload(db.get_flowchart(conn), new_recommendations(conn))
+        )
 
 
 @app.get("/chat", response_class=HTMLResponse)
@@ -337,7 +345,13 @@ def chat_page(request: Request, error: Optional[str] = None):
         HttpResponse: The rendered chat page with the provided messages and error (if any).
     """
     with open_db() as conn:
-        return render(request, "chat.html", "chat", messages=db.list_chat_messages(conn), error=error)
+        return render(
+            request,
+            "chat.html",
+            "chat",
+            messages=db.list_chat_messages(conn),
+            error=error,
+        )
 
 
 @app.post("/chat")
@@ -368,7 +382,9 @@ def send_chat(message: str = Form("")):
             db.add_chat_message(conn, "assistant", reply)
         except Exception as exc:
             logger.exception("Chat reply failed")
-            return redirect("/chat", error=f"{friendly_error(exc)} Your message is saved.")
+            return redirect(
+                "/chat", error=f"{friendly_error(exc)} Your message is saved."
+            )
     return redirect("/chat")
 
 
@@ -400,15 +416,15 @@ def update_recommendation(rec_id: int, status: str = Form(...)):
     Update the status of a recommendation.
     Args:
         rec_id (int): The unique identifier of the recommendation to update.
-        status (str): The new status for the recommendation. Must be one of 
-                      "tried", "skipped", or "new". Defaults to a required 
+        status (str): The new status for the recommendation. Must be one of
+                      "tried", "skipped", or "new". Defaults to a required
                       form input.
     Returns:
         Response: A redirect response to the "/recommendations" page.
     Raises:
         ValueError: If the provided status is not one of the allowed values.
     Notes:
-        This function interacts with the database to update the status of a 
+        This function interacts with the database to update the status of a
         recommendation and ensures the status is valid before proceeding.
     """
     if status in ("tried", "skipped", "new"):
@@ -418,7 +434,9 @@ def update_recommendation(rec_id: int, status: str = Form(...)):
 
 
 @app.get("/profile", response_class=HTMLResponse)
-def profile_page(request: Request, saved: Optional[int] = None, error: Optional[str] = None):
+def profile_page(
+    request: Request, saved: Optional[int] = None, error: Optional[str] = None
+):
     """
     Render the profile page with user profile data and optional status messages.
     Args:
@@ -430,8 +448,13 @@ def profile_page(request: Request, saved: Optional[int] = None, error: Optional[
     """
     with open_db() as conn:
         return render(
-            request, "profile.html", "profile",
-            profile=db.get_profile(conn), sexes=SEXES, saved=saved, error=error,
+            request,
+            "profile.html",
+            "profile",
+            profile=db.get_profile(conn),
+            sexes=SEXES,
+            saved=saved,
+            error=error,
         )
 
 
@@ -466,14 +489,18 @@ def save_profile(
             sessions_per_week=float(sessions_per_week),
         )
     except ValueError:
-        return redirect("/profile", error="Age, weight and sessions per week need to be numbers.")
+        return redirect(
+            "/profile", error="Age, weight and sessions per week need to be numbers."
+        )
     with open_db() as conn:
         db.save_profile(conn, **values)
     return redirect("/profile", saved=1)
 
 
 @app.get("/settings", response_class=HTMLResponse)
-def settings_page(request: Request, msg: Optional[str] = None, error: Optional[str] = None):
+def settings_page(
+    request: Request, msg: Optional[str] = None, error: Optional[str] = None
+):
     """
     Render the settings page with optional message and error details.
     Args:
@@ -485,8 +512,12 @@ def settings_page(request: Request, msg: Optional[str] = None, error: Optional[s
     """
     key = claude_sync.get_api_key()
     return render(
-        request, "settings.html", "settings",
-        key_tail=key[-4:] if key else None, msg=msg, error=error,
+        request,
+        "settings.html",
+        "settings",
+        key_tail=key[-4:] if key else None,
+        msg=msg,
+        error=error,
     )
 
 
@@ -494,8 +525,8 @@ def settings_page(request: Request, msg: Optional[str] = None, error: Optional[s
 def save_key(api_key: str = Form("")):
     """
     Handles the saving of an Anthropic API key.
-    This function validates the provided API key, checks its format, and verifies it with Anthropic's service. 
-    If the key is valid, it is saved and an appropriate success message is returned. If the key is invalid 
+    This function validates the provided API key, checks its format, and verifies it with Anthropic's service.
+    If the key is valid, it is saved and an appropriate success message is returned. If the key is invalid
     or verification fails, an error message is returned.
     Args:
         api_key (str): The API key provided by the user. Defaults to an empty string.
@@ -504,22 +535,29 @@ def save_key(api_key: str = Form("")):
     """
     key = api_key.strip()
     if not key.startswith("sk-ant-"):
-        return redirect("/settings", error="That doesn't look like an Anthropic key. They start with sk-ant-.")
+        return redirect(
+            "/settings",
+            error="That doesn't look like an Anthropic key. They start with sk-ant-.",
+        )
     ok = claude_sync.verify_api_key(key)
     if ok is False:
-        return redirect("/settings", error="Anthropic rejected that key, so it wasn't saved.")
+        return redirect(
+            "/settings", error="Anthropic rejected that key, so it wasn't saved."
+        )
     where = claude_sync.set_api_key(key)
     if ok:
         return redirect("/settings", msg=f"Key checked and saved to {where}.")
-    return redirect("/settings", msg=f"Key saved to {where}, but couldn't be checked right now.")
+    return redirect(
+        "/settings", msg=f"Key saved to {where}, but couldn't be checked right now."
+    )
 
 
 @app.post("/settings/key/remove")
 def remove_key():
     """
     Removes the stored API key and redirects the user to the settings page.
-    This function clears the API key using the `claude_sync.clear_api_key()` method 
-    and then redirects the user to the "/settings" page with a message indicating 
+    This function clears the API key using the `claude_sync.clear_api_key()` method
+    and then redirects the user to the "/settings" page with a message indicating
     that the key has been removed.
     Returns:
         flask.Response: A redirect response to the "/settings" page with a message.
