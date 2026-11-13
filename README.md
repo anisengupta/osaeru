@@ -75,3 +75,22 @@ days. A $99/year Apple Developer account removes that limit.
 This directory is a normal Python project - `git init` and commit as-is.
 The `.gitignore` already excludes the local SQLite file, virtualenvs, and
 Briefcase build artefacts, so nothing personal or generated gets checked in.
+
+## Web front end
+
+`src/osaeru/web/` is a browser front end built on the same `database.py` and
+`claude_sync.py`, without changing them. It runs anywhere a browser does,
+including Safari on an iPad (Add to Home Screen opens it full-screen).
+
+```bash
+pip install -r requirements.txt
+python -m osaeru.web          # http://127.0.0.1:8000
+```
+
+It uses the same SQLite file and keychain key as the desktop app.
+`OSAERU_DB_PATH` points it at a different database, `OSAERU_RELOAD=1`
+auto-reloads while developing, and `PORT` / `OSAERU_HOST` change where it
+listens. It has no login, so it only listens on localhost by default; don't
+expose it on a shared network.
+
+Tests: `pytest`.
