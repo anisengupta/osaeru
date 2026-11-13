@@ -84,7 +84,7 @@ including Safari on an iPad (Add to Home Screen opens it full-screen).
 
 ```bash
 pip install -r requirements.txt
-python -m osaeru.web          # http://127.0.0.1:8000
+PYTHONPATH=src python -m osaeru.web  
 ```
 
 It uses the same SQLite file and keychain key as the desktop app.
