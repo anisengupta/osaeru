@@ -16,7 +16,6 @@ from __future__ import annotations
 import datetime as dt
 import logging
 import os
-import sqlite3
 from collections import Counter
 from contextlib import contextmanager
 from pathlib import Path
@@ -27,6 +26,7 @@ from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from sqlalchemy.engine import Connection
 
 from osaeru import claude_sync, database as db
 from osaeru.web.graph import flowchart_payload
@@ -63,7 +63,7 @@ templates.env.filters["day"] = _day
 
 
 @contextmanager
-def open_db() -> Iterator[sqlite3.Connection]:
+def open_db() -> Iterator[Connection]:
     """
     Context manager for opening a SQLite database connection.
     This function retrieves the database path from the environment variable
@@ -75,15 +75,14 @@ def open_db() -> Iterator[sqlite3.Connection]:
     Raises:
         sqlite3.Error: If there is an issue connecting to the database.
     """
-    path = os.environ.get("OSAERU_DB_PATH")
-    conn = db.connect(Path(path).expanduser() if path else None)
+    conn = db.connect()
     try:
         yield conn
     finally:
         conn.close()
 
 
-def pending_note_count(conn: sqlite3.Connection) -> int:
+def pending_note_count(conn: Connection) -> int:
     """
     Calculate the number of pending session notes in the database.
     This function iterates through the pending synchronization items retrieved
@@ -98,7 +97,7 @@ def pending_note_count(conn: sqlite3.Connection) -> int:
     )
 
 
-def new_recommendations(conn: sqlite3.Connection) -> List[Dict[str, Any]]:
+def new_recommendations(conn: Connection) -> List[Dict[str, Any]]:
     """
     Retrieve a list of new recommendations from the database, including the skill names
     associated with each recommendation.
@@ -117,7 +116,7 @@ def new_recommendations(conn: sqlite3.Connection) -> List[Dict[str, Any]]:
     ]
 
 
-def recommendation_counts(conn: sqlite3.Connection) -> Dict[str, int]:
+def recommendation_counts(conn: Connection) -> Dict[str, int]:
     """
     Retrieves the count of recommendations grouped by their status.
     Args:
