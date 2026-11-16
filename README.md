@@ -26,19 +26,6 @@ src/osaeru/
     recommendations.py
 ```
 
-## Getting started (desktop dev loop)
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install briefcase toga anthropic keyring
-
-briefcase dev
-```
-
-This runs the app as a normal desktop window so you can iterate fast before
-touching iOS/Xcode at all.
-
 ## Setting your Claude API key
 
 Open the **Settings** tab, paste your key and press Save. The app checks the
@@ -46,20 +33,6 @@ key against the API before saving it (if you're offline it saves anyway and
 says so). On desktop the key goes in the OS keychain via `keyring`; on iOS,
 where `keyring` has no backend, it goes in a private file in the app's
 sandboxed data directory. It is never written to the database or a config file.
-
-## Building for iOS / your iPad
-
-Requires Xcode installed, with your Apple ID added under
-Xcode > Settings > Accounts.
-
-```bash
-briefcase create iOS
-briefcase build iOS
-briefcase run iOS      # deploys to a connected iPad or the simulator
-```
-
-With a free Apple ID, the app needs re-signing/reinstalling roughly every 7
-days. A $99/year Apple Developer account removes that limit.
 
 ## Known gaps to close before this is daily-usable
 

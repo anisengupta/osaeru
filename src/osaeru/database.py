@@ -385,7 +385,7 @@ def get_flowchart(conn: Connection) -> Dict[str, Any]:
             )
             .select_from(skill_edges)
             .join(s1, s1.c.id == skill_edges.c.from_skill_id)
-            .join(s2, s2.c.id == skill_edges.c.to_skill)
+            .join(s2, s2.c.id == skill_edges.c.to_skill_id)
             .order_by(skill_edges.c.id)
         )
         .mappings()
