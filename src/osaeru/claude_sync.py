@@ -87,6 +87,12 @@ def _extract_json(text: str) -> Dict[str, Any]:
 
 
 def _use_keychain() -> bool:
+    """Sets whether to use the keychain.
+
+    Returns:
+        bool: AS bool to indicate if the keychain
+        is to be used.
+    """
     return (
         db.backend() == "sqlite"
         and not os.environ.get("K_SERVICE")
@@ -95,6 +101,12 @@ def _use_keychain() -> bool:
 
 
 def _db_get_key() -> Optional[str]:
+    """Gets the API stored in the database.
+
+    Returns:
+        Optional[str]: The Anthropic API key
+        retrieved from the database.
+    """
     conn = db.connect()
     try:
         value = db.get_setting(conn, API_KEY_SETTING)
