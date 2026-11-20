@@ -28,6 +28,7 @@ TABLES = {
     "chat_messages",
     "recommendations",
     "sync_queue",
+    "app_settings",
 }
 
 
@@ -157,6 +158,10 @@ class TestSqliteFile:
         assert [s["notes"] for s in db.list_sessions(c)] == ["old note"]
         db.add_session_note(c, "new note")
         assert len(db.list_sessions(c)) == 2
+        # Tables added since then are created alongside the old ones.
+        assert "app_settings" in inspect(c).get_table_names()
+        db.set_setting(c, "k", "v")
+        assert db.get_setting(c, "k") == "v"
         c.close()
 
 
@@ -348,6 +353,56 @@ class TestSyncQueue:
 
     def test_empty_queue(self, conn):
         assert db.pending_sync_items(conn) == []
+
+
+# ---- settings --------------------------------------------------------------------
+class TestSettings:
+    def test_missing_setting_is_none(self, conn):
+        assert db.get_setting(conn, "nope") is None
+
+    def test_set_and_get(self, conn):
+        db.set_setting(conn, "anthropic_api_key", "sk-ant-123")
+        assert db.get_setting(conn, "anthropic_api_key") == "sk-ant-123"
+
+    def test_set_replaces_existing_value(self, conn):
+        db.set_setting(conn, "k", "old")
+        db.set_setting(conn, "k", "new")
+        assert db.get_setting(conn, "k") == "new"
+        assert (
+            conn.execute(select(func.count()).select_from(db.app_settings)).scalar_one()
+            == 1
+        )
+
+    def test_set_updates_timestamp(self, conn):
+        db.set_setting(conn, "k", "v")
+        first = conn.execute(select(db.app_settings.c.updated_at)).scalar_one()
+        db.set_setting(conn, "k", "v2")
+        second = conn.execute(select(db.app_settings.c.updated_at)).scalar_one()
+        assert second >= first
+
+    def test_keys_are_independent(self, conn):
+        db.set_setting(conn, "a", "1")
+        db.set_setting(conn, "b", "2")
+        db.delete_setting(conn, "a")
+        assert (db.get_setting(conn, "a"), db.get_setting(conn, "b")) == (None, "2")
+
+    def test_delete_missing_setting_is_harmless(self, conn):
+        db.delete_setting(conn, "never-set")
+
+    def test_values_are_stored_exactly(self, conn):
+        value = "  spaces, unicode ✓, 'quotes' and \"double\" \n newline "
+        db.set_setting(conn, "k", value)
+        assert db.get_setting(conn, "k") == value
+
+    def test_persists_across_connections(self, conn):
+        db.set_setting(conn, "k", "v")
+        other = db.connect()
+        assert db.get_setting(other, "k") == "v"
+        other.close()
+
+    def test_value_cannot_be_null(self, conn):
+        with pytest.raises(CONSTRAINT_ERRORS):
+            db.set_setting(conn, "k", None)
 
 
 # ---- profile ----------------------------------------------------------------------

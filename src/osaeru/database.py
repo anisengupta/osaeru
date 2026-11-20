@@ -54,7 +54,7 @@ sessions = Table(
     Column("id", Integer, primary_key=True),
     Column("occurred_at", Text, nullable=False),
     Column("notes", Text, nullable=False),
-    Column("feeling", Text),  # freeform: "good", "tired", "frustrated" etc
+    Column("feeling", Text),
     Column("created_at", Text, nullable=False),
     sqlite_autoincrement=True,
 )
@@ -64,8 +64,8 @@ skills = Table(
     metadata,
     Column("id", Integer, primary_key=True),
     Column("name", Text, nullable=False, unique=True),
-    Column("category", Text),  # e.g. "guard", "submission", "escape"
-    Column("confidence", Text),  # e.g. "learning", "comfortable", "reliable"
+    Column("category", Text),
+    Column("confidence", Text),
     Column("first_seen_session_id", Integer, ForeignKey("sessions.id")),
     Column("updated_at", Text, nullable=False),
     sqlite_autoincrement=True,
@@ -77,9 +77,7 @@ skill_edges = Table(
     Column("id", Integer, primary_key=True),
     Column("from_skill_id", Integer, ForeignKey("skills.id"), nullable=False),
     Column("to_skill_id", Integer, ForeignKey("skills.id"), nullable=False),
-    Column(
-        "relation", Text, nullable=False
-    ),  # e.g. "leads_to", "counters", "depends_on"
+    Column("relation", Text, nullable=False),
     UniqueConstraint("from_skill_id", "to_skill_id", "relation"),
     sqlite_autoincrement=True,
 )
@@ -88,7 +86,7 @@ chat_messages = Table(
     "chat_messages",
     metadata,
     Column("id", Integer, primary_key=True),
-    Column("role", Text, nullable=False),  # "user" or "assistant"
+    Column("role", Text, nullable=False),
     Column("content", Text, nullable=False),
     Column("session_id", Integer, ForeignKey("sessions.id")),
     Column("created_at", Text, nullable=False),
@@ -101,19 +99,25 @@ recommendations = Table(
     Column("id", Integer, primary_key=True),
     Column("text", Text, nullable=False),
     Column("related_skill_id", Integer, ForeignKey("skills.id")),
-    Column(
-        "status", String, nullable=False, server_default="new"
-    ),  # new | tried | skipped
+    Column("status", String, nullable=False, server_default="new"),
     Column("created_at", Text, nullable=False),
     sqlite_autoincrement=True,
+)
+
+app_settings = Table(
+    "app_settings",
+    metadata,
+    Column("key", Text, primary_key=True),
+    Column("value", Text, nullable=False),
+    Column("updated_at", Text, nullable=False),
 )
 
 sync_queue = Table(
     "sync_queue",
     metadata,
     Column("id", Integer, primary_key=True),
-    Column("kind", Text, nullable=False),  # "session_note" | "chat_message"
-    Column("payload", Text, nullable=False),  # JSON blob
+    Column("kind", Text, nullable=False),
+    Column("payload", Text, nullable=False),
     Column("created_at", Text, nullable=False),
     Column("sent_at", Text),
     sqlite_autoincrement=True,
@@ -236,7 +240,7 @@ def get_engine(db_path: Optional[Path] = None) -> Engine:
     CloudSQL.
 
     Args:
-        db_path (Optional[Path], optional): The database path. 
+        db_path (Optional[Path], optional): The database path.
         Defaults to None.
 
     Raises:
@@ -283,8 +287,7 @@ def get_engine(db_path: Optional[Path] = None) -> Engine:
 
 
 def dispose_engines() -> None:
-    """Disposes of a SQL engine.
-    """
+    """Disposes of a SQL engine."""
     with _engines_lock:
         for engine in _engines.values():
             engine.dispose()
@@ -295,7 +298,7 @@ def connect(db_path: Optional[Path] = None) -> Connection:
     """Connects a SQL engine.
 
     Args:
-        db_path (Optional[Path], optional): The database path. 
+        db_path (Optional[Path], optional): The database path.
         Defaults to None.
 
     Returns:
@@ -426,7 +429,7 @@ def add_session_note(
     Args:
         conn (Connection): The database connection.
         notes (str): The notes inputed from the user.
-        feeling (Optional[str], optional): The feeling 
+        feeling (Optional[str], optional): The feeling
         of the user related to the session. Defaults to None.
 
     Returns:
@@ -451,7 +454,7 @@ def list_sessions(conn: Connection, limit: int = 50) -> List[Row]:
 
     Args:
         conn (Connection): The database connection.
-        limit (int, optional): The number of sessions 
+        limit (int, optional): The number of sessions
         to retrieve. Defaults to 50.
 
     Returns:
@@ -480,11 +483,11 @@ def upsert_skill(
     Args:
         conn (Connection): The database connection.
         name (str): The name of the skill to upsert.
-        category (Optional[str], optional): The category 
+        category (Optional[str], optional): The category
         of the skill to upsert. Defaults to None.
-        confidence (Optional[str], optional): The confidence 
+        confidence (Optional[str], optional): The confidence
         value of the skill to upsert. Defaults to None.
-        session_id (Optional[int], optional): The session 
+        session_id (Optional[int], optional): The session
         id related to the skill. Defaults to None.
 
     Returns:
@@ -587,7 +590,7 @@ def add_chat_message(
         conn (Connection): The database connection.
         role (str): The role of the user logged in.
         content (str): The content of the chat.
-        session_id (Optional[int], optional): The session id. 
+        session_id (Optional[int], optional): The session id.
         Defaults to None.
 
     Returns:
@@ -615,7 +618,7 @@ def list_chat_messages(conn: Connection, limit: int = 200) -> List[Row]:
 
     Args:
         conn (Connection): The database connection.
-        limit (int, optional): The limit of chats to retrieve. 
+        limit (int, optional): The limit of chats to retrieve.
         Defaults to 200.
 
     Returns:
@@ -642,7 +645,7 @@ def add_recommendation(
     Args:
         conn (Connection): The database connection.
         text (str): The text of the recommendation.
-        related_skill_id (Optional[int], optional): The skill 
+        related_skill_id (Optional[int], optional): The skill
         id related to the recommendation. Defaults to None.
 
     Returns:
@@ -663,7 +666,7 @@ def list_recommendations(conn: Connection, status: Optional[str] = None) -> List
 
     Args:
         conn (Connection): The database connection.
-        status (Optional[str], optional): The status of those recommendations. 
+        status (Optional[str], optional): The status of those recommendations.
         Defaults to None.
 
     Returns:
@@ -691,4 +694,45 @@ def set_recommendation_status(conn: Connection, rec_id: int, status: str) -> Non
         .where(recommendations.c.id == rec_id)
         .values(status=status)
     )
+    conn.commit()
+
+
+def get_setting(conn: Connection, key: str) -> Optional[str]:
+    """Returns the settings value from the db.
+
+    Args:
+        conn (Connection): The database connection.
+        key (str): The name of the key to retrieve
+        from the db.
+
+    Returns:
+        Optional[str]: The key's value.
+    """
+    return conn.execute(
+        select(app_settings.c.value).where(app_settings.c.key == key)
+    ).scalar_one_or_none()
+
+
+def set_setting(conn: Connection, key: str, value: str) -> None:
+    """Stores a setting, replacing any existing value.
+
+    Args:
+        conn (Connection): The database connection.
+        key (str): The key name.
+        value (str): The value to store.
+    """
+    values = dict(value=value, updated_at=_now())
+    stmt = _insert(conn, app_settings).values(key=key, **values)
+    conn.execute(stmt.on_conflict_do_update(index_elements=["key"], set_=values))
+    conn.commit()
+
+
+def delete_setting(conn: Connection, key: str) -> None:
+    """Deletes a setting.
+
+    Args:
+        conn (Connection): The database connection.
+        key (str): The name of the key to delete.
+    """
+    conn.execute(app_settings.delete().where(app_settings.c.key == key))
     conn.commit()
