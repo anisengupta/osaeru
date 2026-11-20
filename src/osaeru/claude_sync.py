@@ -130,7 +130,7 @@ def set_api_key(api_key: str) -> str:
     api_key = api_key.strip()
     if _use_keychain():
         try:
-            keyring.set_password(KEYRING_SERVICE, KEYRING_KEY)
+            keyring.set_password(KEYRING_SERVICE, KEYRING_KEY, api_key)
             return "keychain"
         except keyring.errors.KeyringError as e:
             logger.warning("Keyring write failed, using the database: %s", e)
