@@ -10,7 +10,6 @@ Every test runs fully isolated:
 - The database is a fresh SQLite file in that temp dir, or, in Postgres
   mode, the test database with every table emptied first.
 - The OS keychain is replaced by an in-memory one.
-- claude_sync's fallback key file lives in the temp dir.
 - The Anthropic client is replaced by a fake, so no test can reach the
   real API or spend credit. Tests script the fake's replies.
 """
@@ -18,6 +17,7 @@ Every test runs fully isolated:
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+
 import os
 
 import httpx
@@ -133,9 +133,7 @@ DB_ENV_VARS = (
 )
 
 sqlite_only = pytest.mark.skipif(bool(TEST_PG_URL), reason="SQLite-specific")
-postgres_only = pytest.mark.skipif(
-    not TEST_PG_URL, reason="needs OSAERU_TEST_DATABASE_URL"
-)
+postgres_only = pytest.mark.skipif(not TEST_PG_URL, reason="needs OSAERU_TEST_DATABASE_URL")
 
 
 def _empty_postgres(url):
@@ -166,7 +164,6 @@ def isolated(tmp_path, monkeypatch):
     original = keyring.get_keyring()
     memory = MemoryKeyring()
     keyring.set_keyring(memory)
-    monkeypatch.setattr(claude_sync, "_key_file", home / ".osaeru" / "api_key")
 
     FakeAnthropic.replies = []
     FakeAnthropic.calls = []
@@ -195,6 +192,6 @@ def fake_claude():
 
 @pytest.fixture
 def with_key():
-    """Stores a (fake) API key in the in-memory keychain."""
+    """Stores a (fake) API key (keychain locally, database in Postgres mode)."""
     claude_sync.set_api_key("sk-ant-test-1234")
     return "sk-ant-test-1234"
