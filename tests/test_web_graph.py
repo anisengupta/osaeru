@@ -32,16 +32,27 @@ def graph(nodes, edges=()):
 
 
 def edge_pairs(payload):
-    return [(e["data"]["source"], e["data"]["target"], e["data"]["relation"]) for e in payload["edges"]]
+    return [
+        (e["data"]["source"], e["data"]["target"], e["data"]["relation"])
+        for e in payload["edges"]
+    ]
 
 
 def test_empty():
-    assert flowchart_payload({"nodes": [], "edges": []}, []) == {"nodes": [], "edges": []}
+    assert flowchart_payload({"nodes": [], "edges": []}, []) == {
+        "nodes": [],
+        "edges": [],
+    }
 
 
 def test_node_shape():
     payload = flowchart_payload(
-        {"nodes": [{"name": "Armbar", "category": "submission", "confidence": "Beginner"}], "edges": []},
+        {
+            "nodes": [
+                {"name": "Armbar", "category": "submission", "confidence": "Beginner"}
+            ],
+            "edges": [],
+        },
         [],
     )
     assert payload["nodes"] == [
@@ -63,11 +74,15 @@ def test_missing_category_becomes_empty_string():
 
 
 def test_leads_to_kept_as_is():
-    assert edge_pairs(flowchart_payload(graph(["A", "B"], [("A", "B", "leads_to")]), [])) == [("A", "B", "leads_to")]
+    assert edge_pairs(
+        flowchart_payload(graph(["A", "B"], [("A", "B", "leads_to")]), [])
+    ) == [("A", "B", "leads_to")]
 
 
 def test_depends_on_is_reversed():
-    payload = flowchart_payload(graph(["Armbar", "Mount"], [("Armbar", "Mount", "depends_on")]), [])
+    payload = flowchart_payload(
+        graph(["Armbar", "Mount"], [("Armbar", "Mount", "depends_on")]), []
+    )
     assert edge_pairs(payload) == [("Mount", "Armbar", "depends_on")]
 
 
@@ -78,7 +93,10 @@ def test_counters_kept_and_labelled():
 
 def test_relation_normalised_and_defaulted():
     g = graph(["A", "B", "C"], [("A", "B", "  Leads_To "), ("B", "C", None)])
-    assert edge_pairs(flowchart_payload(g, [])) == [("A", "B", "leads_to"), ("B", "C", "leads_to")]
+    assert edge_pairs(flowchart_payload(g, [])) == [
+        ("A", "B", "leads_to"),
+        ("B", "C", "leads_to"),
+    ]
 
 
 def test_self_loops_dropped():
@@ -86,7 +104,9 @@ def test_self_loops_dropped():
 
 
 def test_edges_to_unknown_nodes_dropped():
-    assert flowchart_payload(graph(["A"], [("A", "Ghost", "leads_to")]), [])["edges"] == []
+    assert (
+        flowchart_payload(graph(["A"], [("A", "Ghost", "leads_to")]), [])["edges"] == []
+    )
 
 
 def test_duplicates_after_reversal_dropped():
@@ -108,6 +128,9 @@ def test_recommendations_attached_to_their_skill():
         {"skill_name": None, "text": "unlinked"},
         {"skill_name": "Ghost", "text": "no such node"},
     ]
-    nodes = {n["data"]["id"]: n["data"] for n in flowchart_payload(graph(["A", "B"]), recs)["nodes"]}
+    nodes = {
+        n["data"]["id"]: n["data"]
+        for n in flowchart_payload(graph(["A", "B"]), recs)["nodes"]
+    }
     assert nodes["A"]["recommendations"] == ["first", "second"]
     assert nodes["B"]["recommendations"] == []

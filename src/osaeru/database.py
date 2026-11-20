@@ -37,7 +37,9 @@ metadata = MetaData()
 profile = Table(
     "profile",
     metadata,
-    Column("id", Integer, primary_key=True, autoincrement=False),  # singleton row, id = 1
+    Column(
+        "id", Integer, primary_key=True, autoincrement=False
+    ),  # singleton row, id = 1
     Column("age", Integer),
     Column("sex", Text),
     Column("weight_kg", Float),
@@ -75,7 +77,9 @@ skill_edges = Table(
     Column("id", Integer, primary_key=True),
     Column("from_skill_id", Integer, ForeignKey("skills.id"), nullable=False),
     Column("to_skill_id", Integer, ForeignKey("skills.id"), nullable=False),
-    Column("relation", Text, nullable=False),  # e.g. "leads_to", "counters", "depends_on"
+    Column(
+        "relation", Text, nullable=False
+    ),  # e.g. "leads_to", "counters", "depends_on"
     UniqueConstraint("from_skill_id", "to_skill_id", "relation"),
     sqlite_autoincrement=True,
 )
@@ -97,7 +101,9 @@ recommendations = Table(
     Column("id", Integer, primary_key=True),
     Column("text", Text, nullable=False),
     Column("related_skill_id", Integer, ForeignKey("skills.id")),
-    Column("status", String, nullable=False, server_default="new"),  # new | tried | skipped
+    Column(
+        "status", String, nullable=False, server_default="new"
+    ),  # new | tried | skipped
     Column("created_at", Text, nullable=False),
     sqlite_autoincrement=True,
 )
@@ -143,22 +149,22 @@ _connector = None
 def _sqlite_engine(path: Path) -> Engine:
     path.parent.mkdir(parents=True, exist_ok=True)
     engine = create_engine(f"sqlite:///{path}", poolclass=NullPool)
-    
+
     @event.listens_for(engine, "connect")
     def _enable_foreign_keys(dbapi_conn, _record):
         dbapi_conn.execute("PRAGMA foreign_keys = ON")
-    
+
     return engine
 
 
 def _cloudsql_engine() -> Engine:
     global _connector
     from google.cloud.sql.connector import Connector, IPTypes
-    
+
     instance = os.environ["CLOUD_SQL_INSTANCE"]
     name = os.environ.get("DB_NAME", "osaeru")
     user = os.environ.get("DB_USER")
-    
+
     if not user:
         raise RuntimeError("DB_USER must be set when CLOUD_SQL_INSTANCE is set.")
     password = os.environ.get("DB_PASS")
@@ -167,11 +173,11 @@ def _cloudsql_engine() -> Engine:
         if os.environ.get("CLOUD_SQL_IP_TYPE", "public").lower() == "private"
         else IPTypes.PUBLIC
     )
-    
+
     if _connector is None:
         _connector = Connector(refresh_strategy="lazy")
         atexit.register(_connector.close)
-    
+
     def getconn():
         kwargs = dict(user=user, db=name, ip_type=ip_type)
         if password:
@@ -179,7 +185,7 @@ def _cloudsql_engine() -> Engine:
         else:
             kwargs["enable_iam_auth"] = True
         return _connector.connect(instance, "pg8000", **kwargs)
-    
+
     return create_engine(
         "postgresql+pg8000://",
         creator=getconn,
@@ -219,7 +225,7 @@ def get_engine(db_path: Optional[Path] = None) -> Engine:
                     "here would be wiped whenever the instance stops."
                 )
             key = ("sqlite", str(default_db_path().resolve()))
-    
+
     with _engines_lock:
         engine = _engines.get(key)
         if engine is None:
@@ -261,7 +267,9 @@ def _insert(conn: Connection, table: Table):
 
 def queue_for_sync(conn: Connection, kind: str, payload: Dict[str, Any]) -> None:
     conn.execute(
-        sync_queue.insert().values(kind=kind, payload=json.dumps(payload), created_at=_now())
+        sync_queue.insert().values(
+            kind=kind, payload=json.dumps(payload), created_at=_now()
+        )
     )
 
 
@@ -278,7 +286,9 @@ def pending_sync_items(conn: Connection) -> List[Row]:
 
 
 def mark_synced(conn: Connection, item_id: int) -> None:
-    conn.execute(update(sync_queue).where(sync_queue.c.id == item_id).values(sent_at=_now()))
+    conn.execute(
+        update(sync_queue).where(sync_queue.c.id == item_id).values(sent_at=_now())
+    )
     conn.commit()
 
 
@@ -306,15 +316,19 @@ def get_profile(conn: Connection) -> Optional[Row]:
     return conn.execute(select(profile).where(profile.c.id == 1)).mappings().first()
 
 
-def add_session_note(conn: Connection, notes: str, feeling: Optional[str] = None) -> int:
+def add_session_note(
+    conn: Connection, notes: str, feeling: Optional[str] = None
+) -> int:
     now = _now()
     result = conn.execute(
-        sessions.insert().values(occurred_at=now, notes=notes, feeling=feeling, created_at=now)
+        sessions.insert().values(
+            occurred_at=now, notes=notes, feeling=feeling, created_at=now
+        )
     )
     session_id = result.inserted_primary_key[0]
     queue_for_sync(conn, "session_note", {"session_id": session_id, "notes": notes})
     conn.commit()
-    
+
     return session_id
 
 
@@ -349,17 +363,21 @@ def upsert_skill(
             index_elements=["name"],
             set_={
                 "category": func.coalesce(stmt.excluded.category, skills.c.category),
-                "confidence": func.coalesce(stmt.excluded.confidence, skills.c.confidence),
+                "confidence": func.coalesce(
+                    stmt.excluded.confidence, skills.c.confidence
+                ),
                 "updated_at": stmt.excluded.updated_at,
             },
         )
     )
     conn.commit()
-    
+
     return conn.execute(select(skills.c.id).where(skills.c.name == name)).scalar_one()
 
 
-def add_skill_edge(conn: Connection, from_name: str, to_name: str, relation: str) -> None:
+def add_skill_edge(
+    conn: Connection, from_name: str, to_name: str, relation: str
+) -> None:
     from_id = upsert_skill(conn, from_name)
     to_id = upsert_skill(conn, to_name)
     stmt = _insert(conn, skill_edges).values(
@@ -368,7 +386,9 @@ def add_skill_edge(conn: Connection, from_name: str, to_name: str, relation: str
         relation=relation,
     )
     conn.execute(
-        stmt.on_conflict_do_nothing(index_elements=["from_skill_id", "to_skill_id", "relation"])
+        stmt.on_conflict_do_nothing(
+            index_elements=["from_skill_id", "to_skill_id", "relation"]
+        )
     )
     conn.commit()
 
@@ -391,7 +411,7 @@ def get_flowchart(conn: Connection) -> Dict[str, Any]:
         .mappings()
         .all()
     )
-    
+
     return {
         "nodes": [dict(node) for node in nodes],
         "edges": [dict(edge) for edge in edges],
@@ -413,9 +433,11 @@ def add_chat_message(
         )
     )
     if role == "user":
-        queue_for_sync(conn, "chat_message", {"content": content, "session_id": session_id})
+        queue_for_sync(
+            conn, "chat_message", {"content": content, "session_id": session_id}
+        )
     conn.commit()
-    
+
     return result.inserted_primary_key[0]
 
 
@@ -438,13 +460,11 @@ def add_recommendation(
 ) -> int:
     result = conn.execute(
         recommendations.insert().values(
-            text=text,
-            related_skill_id=related_skill_id,
-            created_at=_now()
+            text=text, related_skill_id=related_skill_id, created_at=_now()
         )
     )
     conn.commit()
-    
+
     return result.inserted_primary_key[0]
 
 
@@ -454,12 +474,14 @@ def list_recommendations(conn: Connection, status: Optional[str] = None) -> List
     )
     if status:
         query = query.where(recommendations.c.status == status)
-    
+
     return conn.execute(query).mappings().all()
 
 
 def set_recommendation_status(conn: Connection, rec_id: int, status: str) -> None:
     conn.execute(
-        update(recommendations).where(recommendations.c.id == rec_id).values(status=status)
+        update(recommendations)
+        .where(recommendations.c.id == rec_id)
+        .values(status=status)
     )
     conn.commit()
