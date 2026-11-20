@@ -49,7 +49,9 @@ def test_adds_file_and_console_handlers(clean_root_logger):
     path = logging_config.configure()
     kinds = {type(h) for h in clean_root_logger.handlers}
     assert kinds == {logging.FileHandler, logging.StreamHandler}
-    (file_handler,) = [h for h in clean_root_logger.handlers if isinstance(h, logging.FileHandler)]
+    (file_handler,) = [
+        h for h in clean_root_logger.handlers if isinstance(h, logging.FileHandler)
+    ]
     assert file_handler.baseFilename == str(path)
     assert file_handler.mode == "a"
 

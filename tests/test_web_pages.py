@@ -116,7 +116,12 @@ class TestNotesPage:
         assert "not analysed yet" not in r.text
 
     def test_lists_sessions_newest_first(self, client):
-        seed(lambda c: (db.add_session_note(c, "Older note", "tired"), db.add_session_note(c, "Newer note", "great")))
+        seed(
+            lambda c: (
+                db.add_session_note(c, "Older note", "tired"),
+                db.add_session_note(c, "Newer note", "great"),
+            )
+        )
         text = client.get("/notes").text
         assert text.index("Newer note") < text.index("Older note")
         assert "feeling-tired" in text and "feeling-great" in text
@@ -149,7 +154,11 @@ class TestNotesPage:
         assert "Something broke" in client.get("/notes?error=Something+broke").text
 
     def test_post_saves_and_redirects(self, client):
-        r = client.post("/notes", data={"notes": "  Drilled knee cut  ", "feeling": "good"}, follow_redirects=False)
+        r = client.post(
+            "/notes",
+            data={"notes": "  Drilled knee cut  ", "feeling": "good"},
+            follow_redirects=False,
+        )
         assert location(r) == "/notes?saved=1"
         (s,) = seed(db.list_sessions)
         assert (s["notes"], s["feeling"]) == ("Drilled knee cut", "good")
@@ -207,7 +216,11 @@ class TestSync:
         assert seed(main.pending_note_count) == 1
 
     def test_plain_post_redirects_back(self, client, with_key, fake_claude):
-        r = client.post("/sync", headers={"referer": "http://testserver/flowchart?x=1"}, follow_redirects=False)
+        r = client.post(
+            "/sync",
+            headers={"referer": "http://testserver/flowchart?x=1"},
+            follow_redirects=False,
+        )
         assert location(r) == "http://testserver/flowchart"
 
     def test_plain_post_error_redirects_with_message(self, client):
@@ -224,7 +237,12 @@ class TestFlowchartPage:
         assert 'id="chart"' not in text
 
     def test_counts_and_chart_container(self, client):
-        seed(lambda c: (db.add_skill_edge(c, "A", "B", "leads_to"), db.add_skill_edge(c, "B", "C", "leads_to")))
+        seed(
+            lambda c: (
+                db.add_skill_edge(c, "A", "B", "leads_to"),
+                db.add_skill_edge(c, "B", "C", "leads_to"),
+            )
+        )
         text = client.get("/flowchart").text
         assert "3 skills, 2 connections" in text
         assert 'data-src="/api/flowchart"' in text
@@ -248,7 +266,9 @@ class TestFlowchartApi:
         def setup(c):
             db.upsert_skill(c, "Knee Cut", "passing", "Beginner")
             db.add_skill_edge(c, "Knee Cut", "Side Control", "leads_to")
-            rec = db.add_recommendation(c, "Win the underhook", db.upsert_skill(c, "Knee Cut"))
+            rec = db.add_recommendation(
+                c, "Win the underhook", db.upsert_skill(c, "Knee Cut")
+            )
             done = db.add_recommendation(c, "Old tip", db.upsert_skill(c, "Knee Cut"))
             db.set_recommendation_status(c, done, "tried")
 
@@ -263,7 +283,10 @@ class TestFlowchartApi:
             "recommendations": ["Win the underhook"],  # tried ones are left out
         }
         (edge,) = data["edges"]
-        assert edge["data"]["source"] == "Knee Cut" and edge["data"]["target"] == "Side Control"
+        assert (
+            edge["data"]["source"] == "Knee Cut"
+            and edge["data"]["target"] == "Side Control"
+        )
 
 
 # ---- chat ------------------------------------------------------------------------------------
@@ -272,7 +295,12 @@ class TestChatPage:
         assert "Ask about anything from your training" in client.get("/chat").text
 
     def test_shows_conversation(self, client):
-        seed(lambda c: (db.add_chat_message(c, "user", "My question"), db.add_chat_message(c, "assistant", "My answer")))
+        seed(
+            lambda c: (
+                db.add_chat_message(c, "user", "My question"),
+                db.add_chat_message(c, "assistant", "My answer"),
+            )
+        )
         text = client.get("/chat").text
         assert text.index("My question") < text.index("My answer")
         assert 'class="msg msg-user"' in text and 'class="msg msg-assistant"' in text
@@ -284,19 +312,35 @@ class TestChatPage:
     def test_send_stores_both_sides(self, client, with_key, fake_claude):
         seed(lambda c: db.add_skill_edge(c, "Mount", "Armbar", "leads_to"))
         fake_claude.replies = [text_message("Keep your elbows tight.")]
-        r = client.post("/chat", data={"message": "  How do I keep mount?  "}, follow_redirects=False)
+        r = client.post(
+            "/chat",
+            data={"message": "  How do I keep mount?  "},
+            follow_redirects=False,
+        )
         assert location(r) == "/chat"
         msgs = [(m["role"], m["content"]) for m in seed(db.list_chat_messages)]
-        assert msgs == [("user", "How do I keep mount?"), ("assistant", "Keep your elbows tight.")]
+        assert msgs == [
+            ("user", "How do I keep mount?"),
+            ("assistant", "Keep your elbows tight."),
+        ]
         (call,) = fake_claude.calls
         assert call["messages"] == [{"role": "user", "content": "How do I keep mount?"}]
         assert "Armbar" in call["system"]
 
     def test_send_includes_history(self, client, with_key, fake_claude):
-        seed(lambda c: (db.add_chat_message(c, "user", "q1"), db.add_chat_message(c, "assistant", "a1")))
+        seed(
+            lambda c: (
+                db.add_chat_message(c, "user", "q1"),
+                db.add_chat_message(c, "assistant", "a1"),
+            )
+        )
         fake_claude.replies = [text_message("a2")]
         client.post("/chat", data={"message": "q2"})
-        assert [m["content"] for m in fake_claude.calls[0]["messages"]] == ["q1", "a1", "q2"]
+        assert [m["content"] for m in fake_claude.calls[0]["messages"]] == [
+            "q1",
+            "a1",
+            "q2",
+        ]
 
     def test_blank_message_does_nothing(self, client, fake_claude):
         r = client.post("/chat", data={"message": "   "}, follow_redirects=False)
@@ -306,7 +350,10 @@ class TestChatPage:
     @pytest.mark.parametrize(
         "error, expected",
         [
-            (api_error(anthropic.AuthenticationError, 401), "Claude rejected the API key"),
+            (
+                api_error(anthropic.AuthenticationError, 401),
+                "Claude rejected the API key",
+            ),
             (connection_error(), "Couldn"),
             (api_error(anthropic.RateLimitError, 429), "rate-limiting"),
         ],
@@ -332,7 +379,9 @@ class TestRecommendationsPage:
 
     def test_lists_new_with_skill_name(self, client):
         def setup(c):
-            db.add_recommendation(c, "Drill hip escapes", db.upsert_skill(c, "Hip Escape"))
+            db.add_recommendation(
+                c, "Drill hip escapes", db.upsert_skill(c, "Hip Escape")
+            )
             db.add_recommendation(c, "General conditioning")
 
         seed(setup)
@@ -358,7 +407,9 @@ class TestRecommendationsPage:
     @pytest.mark.parametrize("status", ["tried", "skipped", "new"])
     def test_update_status(self, client, status):
         rid = seed(lambda c: db.add_recommendation(c, "x"))
-        r = client.post(f"/recommendations/{rid}", data={"status": status}, follow_redirects=False)
+        r = client.post(
+            f"/recommendations/{rid}", data={"status": status}, follow_redirects=False
+        )
         assert location(r) == "/recommendations"
         assert seed(db.list_recommendations)[0]["status"] == status
 
@@ -372,7 +423,10 @@ class TestRecommendationsPage:
         assert client.post(f"/recommendations/{rid}", data={}).status_code == 422
 
     def test_non_numeric_id_is_422(self, client):
-        assert client.post("/recommendations/abc", data={"status": "tried"}).status_code == 422
+        assert (
+            client.post("/recommendations/abc", data={"status": "tried"}).status_code
+            == 422
+        )
 
 
 # ---- profile --------------------------------------------------------------------------------
@@ -384,7 +438,11 @@ class TestProfilePage:
         assert 'name="age" inputmode="numeric" min="5" max="100" value=""' in text
 
     def test_prefilled(self, client):
-        seed(lambda c: db.save_profile(c, age=38, sex="female", weight_kg=61.5, sessions_per_week=4))
+        seed(
+            lambda c: db.save_profile(
+                c, age=38, sex="female", weight_kg=61.5, sessions_per_week=4
+            )
+        )
         text = client.get("/profile").text
         assert 'value="38"' in text and 'value="61.5"' in text
         assert '<option value="female" selected>' in text
@@ -393,7 +451,12 @@ class TestProfilePage:
         r = client.post("/profile", data=self.VALID, follow_redirects=False)
         assert location(r) == "/profile?saved=1"
         p = seed(db.get_profile)
-        assert (p["age"], p["sex"], p["weight_kg"], p["sessions_per_week"]) == (38, "male", 78.5, 3.0)
+        assert (p["age"], p["sex"], p["weight_kg"], p["sessions_per_week"]) == (
+            38,
+            "male",
+            78.5,
+            3.0,
+        )
         assert "Profile saved." in client.get("/profile?saved=1").text
 
     def test_unknown_sex_saved_as_other(self, client):
@@ -403,16 +466,25 @@ class TestProfilePage:
     @pytest.mark.parametrize("field", ["age", "weight_kg", "sessions_per_week"])
     @pytest.mark.parametrize("value", ["", "abc"])
     def test_non_numbers_rejected(self, client, field, value):
-        r = client.post("/profile", data={**self.VALID, field: value}, follow_redirects=False)
+        r = client.post(
+            "/profile", data={**self.VALID, field: value}, follow_redirects=False
+        )
         assert "error=" in location(r)
         assert seed(db.get_profile) is None
 
     def test_decimal_age_rejected(self, client):
-        r = client.post("/profile", data={**self.VALID, "age": "38.5"}, follow_redirects=False)
+        r = client.post(
+            "/profile", data={**self.VALID, "age": "38.5"}, follow_redirects=False
+        )
         assert "error=" in location(r)
 
     def test_error_shown(self, client):
-        assert "need to be numbers" in client.get("/profile?error=Age%2C+weight+and+sessions+per+week+need+to+be+numbers.").text
+        assert (
+            "need to be numbers"
+            in client.get(
+                "/profile?error=Age%2C+weight+and+sessions+per+week+need+to+be+numbers."
+            ).text
+        )
 
 
 # ---- settings ----------------------------------------------------------------------------------
@@ -430,25 +502,35 @@ class TestSettingsPage:
         assert "Replace key" in text and "Remove key" in text
 
     def test_save_verified_key(self, client, fake_claude):
-        r = client.post("/settings/key", data={"api_key": "  sk-ant-good-9999 "}, follow_redirects=False)
+        r = client.post(
+            "/settings/key",
+            data={"api_key": "  sk-ant-good-9999 "},
+            follow_redirects=False,
+        )
         assert "Key+checked+and+saved+to+keychain" in location(r)
         assert claude_sync.get_api_key() == "sk-ant-good-9999"
 
     def test_save_when_check_unavailable(self, client, fake_claude):
         fake_claude.models_error = connection_error()
-        r = client.post("/settings/key", data={"api_key": "sk-ant-offline"}, follow_redirects=False)
+        r = client.post(
+            "/settings/key", data={"api_key": "sk-ant-offline"}, follow_redirects=False
+        )
         assert "couldn%27t+be+checked" in location(r)
         assert claude_sync.get_api_key() == "sk-ant-offline"
 
     def test_rejected_key_not_saved(self, client, fake_claude):
         fake_claude.models_error = api_error(anthropic.AuthenticationError, 401)
-        r = client.post("/settings/key", data={"api_key": "sk-ant-bad"}, follow_redirects=False)
+        r = client.post(
+            "/settings/key", data={"api_key": "sk-ant-bad"}, follow_redirects=False
+        )
         assert "rejected+that+key" in location(r)
         assert claude_sync.get_api_key() is None
 
     @pytest.mark.parametrize("value", ["", "hello", "sk-proj-123"])
     def test_wrong_format_not_checked_or_saved(self, client, fake_claude, value):
-        r = client.post("/settings/key", data={"api_key": value}, follow_redirects=False)
+        r = client.post(
+            "/settings/key", data={"api_key": value}, follow_redirects=False
+        )
         assert "error=" in location(r)
         assert fake_claude.inits == []
         assert claude_sync.get_api_key() is None
@@ -472,7 +554,9 @@ class TestHelpers:
     def test_day_other_year_includes_year(self):
         assert main._day("2020-03-01T10:00:00+00:00") == "Sun 1 Mar 2020"
 
-    @pytest.mark.parametrize("value, expected", [("garbage", "garbage"), (None, ""), ("", "")])
+    @pytest.mark.parametrize(
+        "value, expected", [("garbage", "garbage"), (None, ""), ("", "")]
+    )
     def test_day_bad_input(self, value, expected):
         assert main._day(value) == expected
 
@@ -520,15 +604,30 @@ class TestHelpers:
 
 class TestFriendlyError:
     def test_no_key(self):
-        assert main.friendly_error(Exception()) == "Add your Claude API key in Settings first."
+        assert (
+            main.friendly_error(Exception())
+            == "Add your Claude API key in Settings first."
+        )
 
     @pytest.mark.parametrize(
         "error, expected",
         [
-            (api_error(anthropic.AuthenticationError, 401), "Claude rejected the API key. Check it in Settings."),
-            (connection_error(), "Couldn't connect to Claude. Check your connection and try again."),
-            (api_error(anthropic.RateLimitError, 429), "Claude is rate-limiting requests right now. Try again in a minute."),
-            (RuntimeError("hit max_tokens"), "Claude's reply was cut off before it finished. Try a shorter note."),
+            (
+                api_error(anthropic.AuthenticationError, 401),
+                "Claude rejected the API key. Check it in Settings.",
+            ),
+            (
+                connection_error(),
+                "Couldn't connect to Claude. Check your connection and try again.",
+            ),
+            (
+                api_error(anthropic.RateLimitError, 429),
+                "Claude is rate-limiting requests right now. Try again in a minute.",
+            ),
+            (
+                RuntimeError("hit max_tokens"),
+                "Claude's reply was cut off before it finished. Try a shorter note.",
+            ),
         ],
     )
     def test_known_errors(self, with_key, error, expected):
@@ -549,8 +648,12 @@ class TestEntryPoint:
         from osaeru.web import __main__ as entry
 
         calls = {}
-        monkeypatch.setattr(uvicorn, "run", lambda app, **kw: calls.update(app=app, **kw))
-        monkeypatch.setattr(logging_config, "configure", lambda: calls.setdefault("logged", True))
+        monkeypatch.setattr(
+            uvicorn, "run", lambda app, **kw: calls.update(app=app, **kw)
+        )
+        monkeypatch.setattr(
+            logging_config, "configure", lambda: calls.setdefault("logged", True)
+        )
         return entry.main, calls
 
     def test_defaults_to_localhost_8000(self, run, monkeypatch):
@@ -558,7 +661,13 @@ class TestEntryPoint:
         for var in ("OSAERU_HOST", "PORT", "OSAERU_RELOAD"):
             monkeypatch.delenv(var, raising=False)
         main_fn()
-        assert calls == {"app": "osaeru.web.main:app", "host": "127.0.0.1", "port": 8000, "reload": False, "logged": True}
+        assert calls == {
+            "app": "osaeru.web.main:app",
+            "host": "127.0.0.1",
+            "port": 8000,
+            "reload": False,
+            "logged": True,
+        }
 
     def test_env_overrides(self, run, monkeypatch):
         main_fn, calls = run
@@ -566,4 +675,8 @@ class TestEntryPoint:
         monkeypatch.setenv("PORT", "9090")
         monkeypatch.setenv("OSAERU_RELOAD", "1")
         main_fn()
-        assert (calls["host"], calls["port"], calls["reload"]) == ("0.0.0.0", 9090, True)
+        assert (calls["host"], calls["port"], calls["reload"]) == (
+            "0.0.0.0",
+            9090,
+            True,
+        )
