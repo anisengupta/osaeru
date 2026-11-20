@@ -30,7 +30,7 @@ from osaeru import database as db
 logger = logging.getLogger(__name__)
 
 
-_key_file = Path.home() / ".osaeru" / "api_key"
+API_KEY_SETTING = "anthropic_api_key"
 
 
 def _keyring_available() -> bool:
@@ -86,15 +86,22 @@ def _extract_json(text: str) -> Dict[str, Any]:
     return json.loads(cleaned.strip())
 
 
-def init_storage(data_dir: Path) -> None:
-    """Initialises the storage for the Anthropic API key, setting the
-    path for the key file based on the provided data directory.
+def _use_keychain() -> bool:
+    return (
+        db.backend() == "sqlite"
+        and not os.environ.get("K_SERVICE")
+        and _keyring_available()
+    )
 
-    Args:
-        data_dir (Path): The directory where the API key file should be stored.
-    """
-    global _key_file
-    _key_file = Path(data_dir) / "api_key"
+
+def _db_get_key() -> Optional[str]:
+    conn = db.connect()
+    try:
+        value = db.get_setting(conn, API_KEY_SETTING)
+    finally:
+        conn.close()
+    
+    return (value or "").strip() or None
 
 
 def get_api_key() -> Optional[str]:
@@ -103,38 +110,38 @@ def get_api_key() -> Optional[str]:
     Returns:
         Optional[str]: The Anthropic API key if it exists, otherwise None.
     """
-    if _keyring_available():
+    if _use_keychain():
         try:
             key = keyring.get_password(KEYRING_SERVICE, KEYRING_KEY)
             if key:
                 return key
         except keyring.errors.KeyringError as e:
-            logger.warning("Keyring read failed, trying file: %s", e)
-    if _key_file.exists():
-        return _key_file.read_text().strip() or None
-
-    return None
+            logger.warning("Keyring read failed, trying the database: %s", e)
+    
+    return _db_get_key()
 
 
-def set_api_key(api_key: str) -> None:
+def set_api_key(api_key: str) -> str:
     """Sets the Anthropic API key in the OS keychain.
 
     Args:
         api_key (str): The Anthropic API key to store.
     """
     api_key = api_key.strip()
-    if _keyring_available():
+    if _use_keychain():
         try:
-            keyring.set_password(KEYRING_SERVICE, KEYRING_KEY, api_key)
+            keyring.set_password(KEYRING_SERVICE, KEYRING_KEY)
             return "keychain"
         except keyring.errors.KeyringError as e:
-            logger.warning("Keyring write failed, using file: %s", e)
-
-    _key_file.parent.mkdir(parents=True, exist_ok=True)
-    _key_file.write_text(api_key)
-    os.chmod(_key_file, 0o600)
-
-    return "app storage"
+            logger.warning("Keyring write failed, using the database: %s", e)
+    
+    conn = db.connect()
+    try:
+        db.set_setting(conn, API_KEY_SETTING, api_key)
+    finally:
+        conn.close()
+    
+    return "the database"
 
 
 def clear_api_key() -> None:
@@ -146,7 +153,12 @@ def clear_api_key() -> None:
             keyring.delete_password(KEYRING_SERVICE, KEYRING_KEY)
         except keyring.errors.KeyringError:
             pass
-    _key_file.unlink(missing_ok=True)
+    
+    conn = db.connect()
+    try:
+        db.delete_setting(conn, API_KEY_SETTING)
+    finally:
+        conn.close()
 
 
 def verify_api_key(api_key: str) -> Optional[bool]:
