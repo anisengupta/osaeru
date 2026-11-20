@@ -4,7 +4,8 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app/src \
-    OSAERU_HOST=0.0.0.0
+    OSAERU_HOST=0.0.0.0 \
+    FORWARDED_ALLOW_IPS=*
 
 WORKDIR /app
 COPY requirements.txt requirements-cloudrun.txt ./
