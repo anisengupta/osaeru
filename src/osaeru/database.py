@@ -134,6 +134,11 @@ def default_db_path() -> Path:
 
 
 def backend() -> str:
+    """Sets up the backend SQL instance to use.
+
+    Returns:
+        str: The backend SQL instance.
+    """
     if os.environ.get("OSAERU_DATABASE_URL"):
         return "url"
     if os.environ.get("CLOUD_SQL_INSTANCE"):
@@ -147,6 +152,14 @@ _connector = None
 
 
 def _sqlite_engine(path: Path) -> Engine:
+    """Sets up the SLQLite engine to work locally.
+
+    Args:
+        path (Path): The SQLite database path.
+
+    Returns:
+        Engine: The local SQLite engine to be used.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     engine = create_engine(f"sqlite:///{path}", poolclass=NullPool)
 
@@ -158,6 +171,16 @@ def _sqlite_engine(path: Path) -> Engine:
 
 
 def _cloudsql_engine() -> Engine:
+    """Sets up the CloudSQL engine to be used
+    for the app in CloudRun.
+
+    Raises:
+        RuntimeError: A RunTimeError in the event
+        that there is an error setting up the engine.
+
+    Returns:
+        Engine: The CloudSQL engine, ready to be used.
+    """
     global _connector
     from google.cloud.sql.connector import Connector, IPTypes
 
@@ -197,6 +220,11 @@ def _cloudsql_engine() -> Engine:
 
 
 def _create_tables(engine: Engine) -> None:
+    """Create the relevant tables.
+
+    Args:
+        engine (Engine): The SQL engine.
+    """
     with engine.begin() as conn:
         if engine.dialect.name == "postgresql":
             conn.execute(text("SELECT pg_advisory_xact_lock(7302215)"))
@@ -204,6 +232,20 @@ def _create_tables(engine: Engine) -> None:
 
 
 def get_engine(db_path: Optional[Path] = None) -> Engine:
+    """Retrieves the engine to be used, either SQLite or
+    CloudSQL.
+
+    Args:
+        db_path (Optional[Path], optional): The database path. 
+        Defaults to None.
+
+    Raises:
+        RuntimeError: A RuntimeError if something goes wrong
+        to retrieve the engine.
+
+    Returns:
+        Engine: An engine ready to be used for the app.
+    """
     if db_path is not None:
         key = ("sqlite", str(Path(db_path).resolve()))
     else:
@@ -241,6 +283,8 @@ def get_engine(db_path: Optional[Path] = None) -> Engine:
 
 
 def dispose_engines() -> None:
+    """Disposes of a SQL engine.
+    """
     with _engines_lock:
         for engine in _engines.values():
             engine.dispose()
@@ -248,6 +292,15 @@ def dispose_engines() -> None:
 
 
 def connect(db_path: Optional[Path] = None) -> Connection:
+    """Connects a SQL engine.
+
+    Args:
+        db_path (Optional[Path], optional): The database path. 
+        Defaults to None.
+
+    Returns:
+        Connection: The database connection ready to be used.
+    """
     return get_engine(db_path).connect()
 
 
@@ -261,11 +314,28 @@ def _now() -> str:
 
 
 def _insert(conn: Connection, table: Table):
+    """Inserts a table into the SQL database.
+
+    Args:
+        conn (Connection): The database connection.
+        table (Table): The table to be inserted.
+
+    Returns:
+        _type_: The insertion of a table in the relevant
+        SQL database.
+    """
     dialect = postgresql if conn.dialect.name == "postgresql" else sqlite
     return dialect.insert(table)
 
 
 def queue_for_sync(conn: Connection, kind: str, payload: Dict[str, Any]) -> None:
+    """Creates a queue for a Claude sync.
+
+    Args:
+        conn (Connection): The database connection.
+        kind (str): The kind to insert.
+        payload (Dict[str, Any]): The payload to insert.
+    """
     conn.execute(
         sync_queue.insert().values(
             kind=kind, payload=json.dumps(payload), created_at=_now()
@@ -274,6 +344,14 @@ def queue_for_sync(conn: Connection, kind: str, payload: Dict[str, Any]) -> None
 
 
 def pending_sync_items(conn: Connection) -> List[Row]:
+    """Retrieves all the items as pending.
+
+    Args:
+        conn (Connection): The database connection.
+
+    Returns:
+        List[Row]: A list of pending sync items.
+    """
     return (
         conn.execute(
             select(sync_queue)
@@ -286,6 +364,12 @@ def pending_sync_items(conn: Connection) -> List[Row]:
 
 
 def mark_synced(conn: Connection, item_id: int) -> None:
+    """Marks items as synced.
+
+    Args:
+        conn (Connection): The database connection.
+        item_id (int): The id of the item to mark as synced.
+    """
     conn.execute(
         update(sync_queue).where(sync_queue.c.id == item_id).values(sent_at=_now())
     )
@@ -300,6 +384,16 @@ def save_profile(
     weight_kg: float,
     sessions_per_week: float,
 ) -> None:
+    """Saves the profile information.
+
+    Args:
+        conn (Connection): The database connection.
+        age (int): The age of the user.
+        sex (str): The sex of the user.
+        weight_kg (float): The weight of the user.
+        sessions_per_week (float): The number of sessions of BJJ
+        done by the user.
+    """
     values = dict(
         age=age,
         sex=sex,
@@ -313,12 +407,32 @@ def save_profile(
 
 
 def get_profile(conn: Connection) -> Optional[Row]:
+    """Retrieves the profile of the signed in user.
+
+    Args:
+        conn (Connection): The database connection.
+
+    Returns:
+        Optional[Row]: A row with the user's profile.
+    """
     return conn.execute(select(profile).where(profile.c.id == 1)).mappings().first()
 
 
 def add_session_note(
     conn: Connection, notes: str, feeling: Optional[str] = None
 ) -> int:
+    """Adds a session note into the database.
+
+    Args:
+        conn (Connection): The database connection.
+        notes (str): The notes inputed from the user.
+        feeling (Optional[str], optional): The feeling 
+        of the user related to the session. Defaults to None.
+
+    Returns:
+        int: The session id of the note just created by the
+        user.
+    """
     now = _now()
     result = conn.execute(
         sessions.insert().values(
@@ -333,6 +447,16 @@ def add_session_note(
 
 
 def list_sessions(conn: Connection, limit: int = 50) -> List[Row]:
+    """List the previous sessions of the user.
+
+    Args:
+        conn (Connection): The database connection.
+        limit (int, optional): The number of sessions 
+        to retrieve. Defaults to 50.
+
+    Returns:
+        List[Row]: A list of previous sessions.
+    """
     return (
         conn.execute(
             select(sessions)
@@ -351,6 +475,21 @@ def upsert_skill(
     confidence: Optional[str] = None,
     session_id: Optional[int] = None,
 ) -> int:
+    """Upserts a skill based on the user notes.
+
+    Args:
+        conn (Connection): The database connection.
+        name (str): The name of the skill to upsert.
+        category (Optional[str], optional): The category 
+        of the skill to upsert. Defaults to None.
+        confidence (Optional[str], optional): The confidence 
+        value of the skill to upsert. Defaults to None.
+        session_id (Optional[int], optional): The session 
+        id related to the skill. Defaults to None.
+
+    Returns:
+        int: _description_
+    """
     stmt = _insert(conn, skills).values(
         name=name,
         category=category,
@@ -378,6 +517,15 @@ def upsert_skill(
 def add_skill_edge(
     conn: Connection, from_name: str, to_name: str, relation: str
 ) -> None:
+    """Adds a skill edge by retrieving the ids of the from and to
+    skill names.
+
+    Args:
+        conn (Connection): The database connection.
+        from_name (str): The from name skill
+        to_name (str): The to name skill.
+        relation (str): The skill relation.
+    """
     from_id = upsert_skill(conn, from_name)
     to_id = upsert_skill(conn, to_name)
     stmt = _insert(conn, skill_edges).values(
@@ -394,6 +542,15 @@ def add_skill_edge(
 
 
 def get_flowchart(conn: Connection) -> Dict[str, Any]:
+    """Retrieves the flowchart from the db to show in the UI.
+
+    Args:
+        conn (Connection): The database connection.
+
+    Returns:
+        Dict[str, Any]: A dict of nodes and edges which can be
+        rendered in the UI.
+    """
     nodes = conn.execute(select(skills).order_by(skills.c.id)).mappings().all()
     s1, s2 = skills.alias("s1"), skills.alias("s2")
     edges = (
@@ -424,6 +581,18 @@ def add_chat_message(
     content: str,
     session_id: Optional[int] = None,
 ) -> int:
+    """Adds a chat message to the database.
+
+    Args:
+        conn (Connection): The database connection.
+        role (str): The role of the user logged in.
+        content (str): The content of the chat.
+        session_id (Optional[int], optional): The session id. 
+        Defaults to None.
+
+    Returns:
+        int: _description_
+    """
     result = conn.execute(
         chat_messages.insert().values(
             role=role,
@@ -442,6 +611,16 @@ def add_chat_message(
 
 
 def list_chat_messages(conn: Connection, limit: int = 200) -> List[Row]:
+    """Lists previous chat messages.
+
+    Args:
+        conn (Connection): The database connection.
+        limit (int, optional): The limit of chats to retrieve. 
+        Defaults to 200.
+
+    Returns:
+        List[Row]: A list of messages.
+    """
     return (
         conn.execute(
             select(chat_messages)
@@ -458,6 +637,17 @@ def add_recommendation(
     text: str,
     related_skill_id: Optional[int] = None,
 ) -> int:
+    """Adds a recommendation from Claude to try next session.
+
+    Args:
+        conn (Connection): The database connection.
+        text (str): The text of the recommendation.
+        related_skill_id (Optional[int], optional): The skill 
+        id related to the recommendation. Defaults to None.
+
+    Returns:
+        int: The id .mmendation inserted into the db
+    """
     result = conn.execute(
         recommendations.insert().values(
             text=text, related_skill_id=related_skill_id, created_at=_now()
@@ -469,6 +659,16 @@ def add_recommendation(
 
 
 def list_recommendations(conn: Connection, status: Optional[str] = None) -> List[Row]:
+    """Lists all the recommendation from Claude.
+
+    Args:
+        conn (Connection): The database connection.
+        status (Optional[str], optional): The status of those recommendations. 
+        Defaults to None.
+
+    Returns:
+        List[Row]: A list of recommendations to try.
+    """
     query = select(recommendations).order_by(
         recommendations.c.created_at.desc(), recommendations.c.id.desc()
     )
@@ -479,6 +679,13 @@ def list_recommendations(conn: Connection, status: Optional[str] = None) -> List
 
 
 def set_recommendation_status(conn: Connection, rec_id: int, status: str) -> None:
+    """Sets the status of the recommendations suggested.
+
+    Args:
+        conn (Connection): The database connection.
+        rec_id (int): The recommendation id.
+        status (str): The status of the recommendation.
+    """
     conn.execute(
         update(recommendations)
         .where(recommendations.c.id == rec_id)
