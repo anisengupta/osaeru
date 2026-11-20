@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Settings – Osaeru{% endblock %}
+{% block content %}
+<div class="narrow">
+  <h1>Settings</h1>
+  <h2>Claude API key</h2>
+  {% if key_tail %}
+  <p>Connected with the key ending <strong>…{{ key_tail }}</strong>.</p>
+  {% else %}
+  <p>No key yet. Without one, notes are saved but not analysed, and chat is off.</p>
+  {% endif %}
+
+  {% if msg %}<p class="ok" role="status">{{ msg }}</p>{% endif %}
+  {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+
+  <form method="post" action="/settings/key" class="stack" hx-disabled-elt="find button">
+    <label class="field"><span>{{ "Replace key" if key_tail else "Paste your key" }}</span>
+      <input type="password" name="api_key" placeholder="sk-ant-…" autocomplete="off" autocapitalize="off" spellcheck="false" required></label>
+    <button type="submit" class="button"><span class="spinner htmx-indicator" aria-hidden="true"></span> Check and save key</button>
+  </form>
+  {% if key_tail %}
+  <form method="post" action="/settings/key/remove" class="stack">
+    <button type="submit" class="button button-quiet">Remove key</button>
+  </form>
+  {% endif %}
+  <p class="lede">Create a key at console.anthropic.com. API usage is billed separately from a Claude.ai subscription.</p>
+</div>
+{% endblock %}

@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Flowchart – Osaeru{% endblock %}
+{% block content %}
+<div class="chart-bar">
+  <h1>Your game</h1>
+  <p class="chart-count">{{ node_count }} skill{{ "s" if node_count != 1 }}, {{ edge_count }} connection{{ "s" if edge_count != 1 }}</p>
+  <ul class="legend" aria-label="Key">
+    <li><span class="swatch swatch-learning"></span>Learning</li>
+    <li><span class="swatch swatch-comfortable"></span>Comfortable</li>
+    <li><span class="swatch swatch-reliable"></span>Reliable</li>
+    <li><span class="swatch swatch-unrated"></span>Unrated</li>
+    <li><span class="swatch-line"></span>Counters</li>
+  </ul>
+  <button type="button" class="button button-quiet" data-chart-fit>Fit to screen</button>
+</div>
+{% with auto = False %}{% include "_pending.html" %}{% endwith %}
+
+{% if node_count %}
+<div class="chart-wrap">
+  <div id="chart" class="chart" data-src="/api/flowchart" role="img" aria-label="Flowchart of your techniques and how they connect"></div>
+  <aside class="chart-detail" id="chart-detail" aria-live="polite">
+    <p class="empty">Tap a skill to see how it connects.</p>
+  </aside>
+</div>
+{% else %}
+<p class="empty">No skills yet. Save a session note and Claude will start mapping your game here.</p>
+{% endif %}
+{% endblock %}

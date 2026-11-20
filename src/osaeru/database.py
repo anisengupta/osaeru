@@ -1,15 +1,117 @@
-"""
-Local, persistant storage for the app. Everything here works fully offline with SQLite.
-"""
+"Local storage for app, when working in Cloud Run, the storage is persistant, when working locally, SQLite is used."
 
 from __future__ import annotations
+import atexit
 import datetime as dt
 import json
-import sqlite3
+import os
+import threading
 from pathlib import Path
-from typing import Any, Optional, Dict, List
+from typing import Any, Dict, List, Optional
+from sqlalchemy import (
+    CheckConstraint,
+    Column,
+    Float,
+    ForeignKey,
+    Integer,
+    MetaData,
+    String,
+    Table,
+    Text,
+    UniqueConstraint,
+    create_engine,
+    event,
+    func,
+    select,
+    text,
+    update,
+)
+from sqlalchemy.dialects import postgresql, sqlite
+from sqlalchemy.engine import Connection, Engine, RowMapping
+from sqlalchemy.pool import NullPool
 
-from osaeru.config import SCHEMA
+Row = RowMapping
+
+metadata = MetaData()
+
+profile = Table(
+    "profile",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=False),  # singleton row, id = 1
+    Column("age", Integer),
+    Column("sex", Text),
+    Column("weight_kg", Float),
+    Column("sessions_per_week", Float),
+    Column("updated_at", Text, nullable=False),
+    CheckConstraint("id = 1", name="profile_singleton"),
+)
+
+sessions = Table(
+    "sessions",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("occurred_at", Text, nullable=False),
+    Column("notes", Text, nullable=False),
+    Column("feeling", Text),  # freeform: "good", "tired", "frustrated" etc
+    Column("created_at", Text, nullable=False),
+    sqlite_autoincrement=True,
+)
+
+skills = Table(
+    "skills",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("name", Text, nullable=False, unique=True),
+    Column("category", Text),  # e.g. "guard", "submission", "escape"
+    Column("confidence", Text),  # e.g. "learning", "comfortable", "reliable"
+    Column("first_seen_session_id", Integer, ForeignKey("sessions.id")),
+    Column("updated_at", Text, nullable=False),
+    sqlite_autoincrement=True,
+)
+
+skill_edges = Table(
+    "skill_edges",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("from_skill_id", Integer, ForeignKey("skills.id"), nullable=False),
+    Column("to_skill_id", Integer, ForeignKey("skills.id"), nullable=False),
+    Column("relation", Text, nullable=False),  # e.g. "leads_to", "counters", "depends_on"
+    UniqueConstraint("from_skill_id", "to_skill_id", "relation"),
+    sqlite_autoincrement=True,
+)
+
+chat_messages = Table(
+    "chat_messages",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("role", Text, nullable=False),  # "user" or "assistant"
+    Column("content", Text, nullable=False),
+    Column("session_id", Integer, ForeignKey("sessions.id")),
+    Column("created_at", Text, nullable=False),
+    sqlite_autoincrement=True,
+)
+
+recommendations = Table(
+    "recommendations",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("text", Text, nullable=False),
+    Column("related_skill_id", Integer, ForeignKey("skills.id")),
+    Column("status", String, nullable=False, server_default="new"),  # new | tried | skipped
+    Column("created_at", Text, nullable=False),
+    sqlite_autoincrement=True,
+)
+
+sync_queue = Table(
+    "sync_queue",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("kind", Text, nullable=False),  # "session_note" | "chat_message"
+    Column("payload", Text, nullable=False),  # JSON blob
+    Column("created_at", Text, nullable=False),
+    Column("sent_at", Text),
+    sqlite_autoincrement=True,
+)
 
 
 def default_db_path() -> Path:
@@ -19,28 +121,128 @@ def default_db_path() -> Path:
     Returns:
         Path: The default path for the SQLite database file.
     """
+    env_path = os.environ.get("OSAERU_DB_PATH")
+    if env_path:
+        return Path(env_path).expanduser()
     return Path.home() / ".osaeru" / "osaeru.sqlite3"
 
 
-def connect(db_path: Optional[Path] = None) -> sqlite3.Connection:
-    """Connects to the SQLite database, creating it and the
-    necessary tables if they don't exist.
+def backend() -> str:
+    if os.environ.get("OSAERU_DATABASE_URL"):
+        return "url"
+    if os.environ.get("CLOUD_SQL_INSTANCE"):
+        return "cloudsql"
+    return "sqlite"
 
-    Args:
-        db_path (Optional[Path], optional): The database path. Defaults to None.
 
-    Returns:
-        sqlite3.Connection: A connection object to the SQLite database.
-    """
-    db_path = db_path or default_db_path()
-    db_path.parent.mkdir(parents=True, exist_ok=True)
+_engines = {}
+_engines_lock = threading.Lock()
+_connector = None
 
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON;")
-    conn.executescript(SCHEMA)
 
-    return conn
+def _sqlite_engine(path: Path) -> Engine:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    engine = create_engine(f"sqlite:///{path}", poolclass=NullPool)
+    
+    @event.listens_for(engine, "connect")
+    def _enable_foreign_keys(dbapi_conn, _record):
+        dbapi_conn.execute("PRAGMA foreign_keys = ON")
+    
+    return engine
+
+
+def _cloudsql_engine() -> Engine:
+    global _connector
+    from google.cloud.sql.connector import Connector, IPTypes
+    
+    instance = os.environ["CLOUD_SQL_INSTANCE"]
+    name = os.environ.get("DB_NAME", "osaeru")
+    user = os.environ.get("DB_USER")
+    
+    if not user:
+        raise RuntimeError("DB_USER must be set when CLOUD_SQL_INSTANCE is set.")
+    password = os.environ.get("DB_PASS")
+    ip_type = (
+        IPTypes.PRIVATE
+        if os.environ.get("CLOUD_SQL_IP_TYPE", "public").lower() == "private"
+        else IPTypes.PUBLIC
+    )
+    
+    if _connector is None:
+        _connector = Connector(refresh_strategy="lazy")
+        atexit.register(_connector.close)
+    
+    def getconn():
+        kwargs = dict(user=user, db=name, ip_type=ip_type)
+        if password:
+            kwargs["password"] = password
+        else:
+            kwargs["enable_iam_auth"] = True
+        return _connector.connect(instance, "pg8000", **kwargs)
+    
+    return create_engine(
+        "postgresql+pg8000://",
+        creator=getconn,
+        pool_size=5,
+        max_overflow=2,
+        pool_pre_ping=True,
+        pool_recycle=1800,
+    )
+
+
+def _create_tables(engine: Engine) -> None:
+    with engine.begin() as conn:
+        if engine.dialect.name == "postgresql":
+            conn.execute(text("SELECT pg_advisory_xact_lock(7302215)"))
+        metadata.create_all(conn)
+
+
+def get_engine(db_path: Optional[Path] = None) -> Engine:
+    if db_path is not None:
+        key = ("sqlite", str(Path(db_path).resolve()))
+    else:
+        kind = backend()
+        if kind == "url":
+            key = ("url", os.environ["OSAERU_DATABASE_URL"])
+        elif kind == "cloudsql":
+            key = (
+                "cloudsql",
+                os.environ["CLOUD_SQL_INSTANCE"],
+                os.environ.get("DB_NAME", "osaeru"),
+                os.environ.get("DB_USER"),
+            )
+        else:
+            if os.environ.get("K_SERVICE"):
+                raise RuntimeError(
+                    "Running on Cloud Run without a database configured. Set "
+                    "CLOUD_SQL_INSTANCE (or OSAERU_DATABASE_URL); a SQLite file "
+                    "here would be wiped whenever the instance stops."
+                )
+            key = ("sqlite", str(default_db_path().resolve()))
+    
+    with _engines_lock:
+        engine = _engines.get(key)
+        if engine is None:
+            if key[0] == "sqlite":
+                engine = _sqlite_engine(Path(key[1]))
+            elif key[0] == "url":
+                engine = create_engine(key[1], pool_pre_ping=True)
+            else:
+                engine = _cloudsql_engine()
+            _create_tables(engine)
+            _engines[key] = engine
+    return engine
+
+
+def dispose_engines() -> None:
+    with _engines_lock:
+        for engine in _engines.values():
+            engine.dispose()
+        _engines.clear()
+
+
+def connect(db_path: Optional[Path] = None) -> Connection:
+    return get_engine(db_path).connect()
 
 
 def _now() -> str:
@@ -52,354 +254,212 @@ def _now() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat()
 
 
-# ---- sync queue --------------------------------------------------------
-def queue_for_sync(
-    conn: sqlite3.Connection, kind: str, payload: Dict[str, Any]
-) -> None:
-    """Queues an item for syncing with the remote server by
-    inserting it into the `sync_queue` table.
+def _insert(conn: Connection, table: Table):
+    dialect = postgresql if conn.dialect.name == "postgresql" else sqlite
+    return dialect.insert(table)
 
-    Args:
-        conn (sqlite3.Connection): The SQLite database connection.
-        kind (str): The type of the item to be synced (e.g., "session_note", "chat_message").
-        payload (Dict[str, Any]): The data associated with the item to be synced,
-        which will be serialized to JSON.
-    """
+
+def queue_for_sync(conn: Connection, kind: str, payload: Dict[str, Any]) -> None:
     conn.execute(
-        "INSERT INTO sync_queue (kind, payload, created_at) VALUES (?, ?, ?)",
-        (kind, json.dumps(payload), _now()),
+        sync_queue.insert().values(kind=kind, payload=json.dumps(payload), created_at=_now())
     )
 
 
-def pending_sync_items(conn: sqlite3.Connection) -> List[sqlite3.Row]:
-    """Pends items in the sync queue that have not yet been sent,
-    ordered by their creation time.
-
-    Args:
-        conn (sqlite3.Connection): The SQLite database connection.
-
-    Returns:
-        List[sqlite3.Row]: A list of rows from the `sync_queue`
-        table representing items that are pending sync.
-    """
-    return conn.execute(
-        "SELECT * FROM sync_queue WHERE sent_at IS NULL ORDER BY created_at ASC"
-    ).fetchall()
+def pending_sync_items(conn: Connection) -> List[Row]:
+    return (
+        conn.execute(
+            select(sync_queue)
+            .where(sync_queue.c.sent_at.is_(None))
+            .order_by(sync_queue.c.created_at, sync_queue.c.id)
+        )
+        .mappings()
+        .all()
+    )
 
 
-def mark_synced(conn: sqlite3.Connection, item_id: int) -> None:
-    """Marks an item in the sync queue as sent by updating its `sent_at` timestamp.
-
-    Args:
-        conn (sqlite3.Connection): The SQLite database connection.
-        item_id (int): The ID of the item in the `sync_queue` table to mark as sent.
-    """
-    conn.execute("UPDATE sync_queue SET sent_at = ? WHERE id = ?", (_now(), item_id))
+def mark_synced(conn: Connection, item_id: int) -> None:
+    conn.execute(update(sync_queue).where(sync_queue.c.id == item_id).values(sent_at=_now()))
     conn.commit()
 
 
-# ---- profile -----------------------------------------------------------
 def save_profile(
-    conn: sqlite3.Connection,
+    conn: Connection,
     *,
     age: int,
     sex: str,
     weight_kg: float,
     sessions_per_week: float,
 ) -> None:
-    """Saves the user's profile information to the database, either inserting
-    a new row or updating the existing one.
-
-    Args:
-        conn (sqlite3.Connection): The SQLite database connection.
-        age (int): The user's age.
-        sex (str): The user's sex ("male", "female", or "other").
-        weight_kg (float): The user's weight in kilograms.
-        sessions_per_week (float): The number of training sessions per week.
-    """
-    conn.execute(
-        """
-        INSERT INTO profile (id, age, sex, weight_kg, sessions_per_week, updated_at)
-        VALUES (1, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-            age=excluded.age, sex=excluded.sex, weight_kg=excluded.weight_kg,
-            sessions_per_week=excluded.sessions_per_week, updated_at=excluded.updated_at
-        """,
-        (age, sex, weight_kg, sessions_per_week, _now()),
+    values = dict(
+        age=age,
+        sex=sex,
+        weight_kg=weight_kg,
+        sessions_per_week=sessions_per_week,
+        updated_at=_now(),
     )
+    stmt = _insert(conn, profile).values(id=1, **values)
+    conn.execute(stmt.on_conflict_do_update(index_elements=["id"], set_=values))
     conn.commit()
 
 
-def get_profile(conn: sqlite3.Connection) -> Optional[sqlite3.Row]:
-    """Gets a user's profile information from the database. Returns
-    None if no profile exists.
-
-    Args:
-        conn (sqlite3.Connection): The SQLite database connection.
-
-    Returns:
-        Optional[sqlite3.Row]: A row from the `profile` table containing
-        the user's profile information, or None if no profile exists.
-    """
-    return conn.execute("SELECT * FROM profile WHERE id = 1").fetchone()
+def get_profile(conn: Connection) -> Optional[Row]:
+    return conn.execute(select(profile).where(profile.c.id == 1)).mappings().first()
 
 
-# ---- sessions / notes ---------------------------------------------------
-def add_session_note(
-    conn: sqlite3.Connection, notes: str, feeling: Optional[str] = None
-) -> int:
-    """Adds a session note to the database and queues it for syncing with the
-    remote server.
-
-    Args:
-        conn (sqlite3.Connection): The SQLite database connection.
-        notes (str): The session notes text.
-        feeling (Optional[str], optional): The user's feeling. Defaults to None.
-
-    Returns:
-        int: _description_
-    """
+def add_session_note(conn: Connection, notes: str, feeling: Optional[str] = None) -> int:
     now = _now()
-    cur = conn.execute(
-        "INSERT INTO sessions (occurred_at, notes, feeling, created_at) VALUES (?, ?, ?, ?)",
-        (now, notes, feeling, now),
+    result = conn.execute(
+        sessions.insert().values(occurred_at=now, notes=notes, feeling=feeling, created_at=now)
     )
-
-    session_id = cur.lastrowid
-    queue_for_sync(
-        conn,
-        "session_note",
-        {
-            "session_id": session_id,
-            "notes": notes,
-        },
-    )
+    session_id = result.inserted_primary_key[0]
+    queue_for_sync(conn, "session_note", {"session_id": session_id, "notes": notes})
     conn.commit()
-
+    
     return session_id
 
 
-def list_sessions(conn: sqlite3.Connection, limit: int = 50) -> List[sqlite3.Row]:
-    """Lists the most recent session notes from the database, ordered by their occurrence time.
-
-    Args:
-        conn (sqlite3.Connection): The SQLite database connection.
-        limit (int, optional): The number of sessions to retrieve. Defaults to 50.
-
-    Returns:
-        List[sqlite3.Row]: A list of rows from the `sessions` table
-        representing the most recent session notes.
-    """
-    return conn.execute(
-        "SELECT * FROM sessions ORDER BY occurred_at DESC LIMIT ?", (limit,)
-    ).fetchall()
+def list_sessions(conn: Connection, limit: int = 50) -> List[Row]:
+    return (
+        conn.execute(
+            select(sessions)
+            .order_by(sessions.c.occurred_at.desc(), sessions.c.id.desc())
+            .limit(limit)
+        )
+        .mappings()
+        .all()
+    )
 
 
-# ---- skills / flowchart --------------------------------------------------
 def upsert_skill(
-    conn: sqlite3.Connection,
+    conn: Connection,
     name: str,
     category: Optional[str] = None,
     confidence: Optional[str] = None,
     session_id: Optional[int] = None,
 ) -> int:
-    """Upserts a skill into the database. If a skill with the same name already exists, it
-    updates the existing record with the new category, confidence, and updated_at timestamp.
-
-    Args:
-        conn (sqlite3.Connection): The SQLite database connection.
-        name (str): The name of the skill to upsert.
-        category (Optional[str], optional): The category to update. Defaults to None.
-        confidence (Optional[str], optional): The confidence to update. Defaults to None.
-        session_id (Optional[int], optional): The session id. Defaults to None.
-
-    Returns:
-        int: _description_
-    """
-    now = _now()
+    stmt = _insert(conn, skills).values(
+        name=name,
+        category=category,
+        confidence=confidence,
+        first_seen_session_id=session_id,
+        updated_at=_now(),
+    )
     conn.execute(
-        """
-        INSERT INTO skills (name, category, confidence, first_seen_session_id, updated_at)
-        VALUES (?, ?, ?, ?, ?)
-        ON CONFLICT(name) DO UPDATE SET
-            category=COALESCE(excluded.category, skills.category),
-            confidence=COALESCE(excluded.confidence, skills.confidence),
-            updated_at=excluded.updated_at
-        """,
-        (name, category, confidence, session_id, now),
+        stmt.on_conflict_do_update(
+            index_elements=["name"],
+            set_={
+                "category": func.coalesce(stmt.excluded.category, skills.c.category),
+                "confidence": func.coalesce(stmt.excluded.confidence, skills.c.confidence),
+                "updated_at": stmt.excluded.updated_at,
+            },
+        )
     )
     conn.commit()
-    row = conn.execute("SELECT id FROM skills WHERE name = ?", (name,)).fetchone()
+    
+    return conn.execute(select(skills.c.id).where(skills.c.name == name)).scalar_one()
 
-    return row["id"]
 
-
-def add_skill_edge(
-    conn: sqlite3.Connection,
-    from_name: str,
-    to_name: str,
-    relation: str,
-) -> None:
-    """Adds a directed edge between two skills in the flowchart,
-    representing a relationship between them.
-
-    Args:
-        conn (sqlite3.Connection): The SQLite database connection.
-        from_name (str): The name of the skill from which the edge originates.
-        to_name (str): The name of the skill to which the edge points.
-        relation (str): The type of relationship between the two skills
-        (e.g., "leads_to", "counters", "depends_on").
-    """
+def add_skill_edge(conn: Connection, from_name: str, to_name: str, relation: str) -> None:
     from_id = upsert_skill(conn, from_name)
     to_id = upsert_skill(conn, to_name)
+    stmt = _insert(conn, skill_edges).values(
+        from_skill_id=from_id,
+        to_skill_id=to_id,
+        relation=relation,
+    )
     conn.execute(
-        """
-        INSERT OR IGNORE INTO skill_edges (from_skill_id, to_skill_id, relation)
-        VALUES (?, ?, ?)
-        """,
-        (from_id, to_id, relation),
+        stmt.on_conflict_do_nothing(index_elements=["from_skill_id", "to_skill_id", "relation"])
     )
     conn.commit()
 
 
-def get_flowchart(conn: sqlite3.Connection) -> Dict[str, Any]:
-    """Gets the flowchart data from the database, including all skills (nodes)
-    and their relationships (edges).
-
-    Args:
-        conn (sqlite3.Connection): The SQLite database connection.
-
-    Returns:
-        Dict[str, Any]: A dictionary containing two keys: "nodes" and "edges".
-    """
-    nodes = conn.execute("SELECT * FROM skills").fetchall()
-    edges = conn.execute(
-        """
-        SELECT s1.name AS from_name, s2.name AS to_name, e.relation
-        FROM skill_edges e
-        JOIN skills s1 ON s1.id = e.from_skill_id
-        JOIN skills s2 ON s2.id = e.to_skill_id
-        """
-    ).fetchall()
-
+def get_flowchart(conn: Connection) -> Dict[str, Any]:
+    nodes = conn.execute(select(skills).order_by(skills.c.id)).mappings().all()
+    s1, s2 = skills.alias("s1"), skills.alias("s2")
+    edges = (
+        conn.execute(
+            select(
+                s1.c.name.label("from_name"),
+                s2.c.name.label("to_name"),
+                skill_edges.c.relation,
+            )
+            .select_from(skill_edges)
+            .join(s1, s1.c.id == skill_edges.c.from_skill_id)
+            .join(s2, s2.c.id == skill_edges.c.to_skill_id)
+            .order_by(skill_edges.c.id)
+        )
+        .mappings()
+        .all()
+    )
+    
     return {
         "nodes": [dict(node) for node in nodes],
         "edges": [dict(edge) for edge in edges],
     }
 
 
-# ---- chat -----------------------------------------------------------------
 def add_chat_message(
-    conn: sqlite3.Connection,
+    conn: Connection,
     role: str,
     content: str,
     session_id: Optional[int] = None,
 ) -> int:
-    """Adds a chat message to the database and queues it for syncing with
-    the remote server if it's a user message.
-
-    Args:
-        conn (sqlite3.Connection): The SQLite database connection.
-        role (str): The role of the message sender, either "user" or "assistant".
-        content (str): The content of the chat message.
-        session_id (Optional[int], optional): The session id. Defaults to None.
-
-    Returns:
-        int: The ID of the newly inserted chat message.
-    """
-    now = _now()
-    cur = conn.execute(
-        "INSERT INTO chat_messages (role, content, session_id, created_at) VALUES (?, ?, ?, ?)",
-        (role, content, session_id, now),
-    )
-
-    if role == "user":
-        queue_for_sync(
-            conn,
-            "chat_message",
-            {
-                "content": content,
-                "session_id": session_id,
-            },
+    result = conn.execute(
+        chat_messages.insert().values(
+            role=role,
+            content=content,
+            session_id=session_id,
+            created_at=_now(),
         )
+    )
+    if role == "user":
+        queue_for_sync(conn, "chat_message", {"content": content, "session_id": session_id})
     conn.commit()
-
-    return cur.lastrowid
-
-
-def list_chat_messages(conn: sqlite3.Connection, limit: int = 200) -> List[sqlite3.Row]:
-    """Lists chat messages from the database, ordered by their creation time.
-
-    Args:
-        conn (sqlite3.Connection): The SQLite database connection.
-        limit (int, optional): The limit of chat messages to retrieve. Defaults to 200.
-
-    Returns:
-        List[sqlite3.Row]: A list of rows from the `chat_messages` table representing the chat messages.
-    """
-    return conn.execute(
-        "SELECT * FROM chat_messages ORDER BY created_at ASC LIMIT ?", (limit,)
-    ).fetchall()
+    
+    return result.inserted_primary_key[0]
 
 
-# ---- recommendations --------------------------------------------------
+def list_chat_messages(conn: Connection, limit: int = 200) -> List[Row]:
+    return (
+        conn.execute(
+            select(chat_messages)
+            .order_by(chat_messages.c.created_at, chat_messages.c.id)
+            .limit(limit)
+        )
+        .mappings()
+        .all()
+    )
+
+
 def add_recommendation(
-    conn: sqlite3.Connection, text: str, related_skill_id: Optional[int] = None
+    conn: Connection,
+    text: str,
+    related_skill_id: Optional[int] = None,
 ) -> int:
-    """Adds a recommendation to the database.
-
-    Args:
-        conn (sqlite3.Connection): The SQLite database connection.
-        text (str): The text of the recommendation.
-        related_skill_id (Optional[int], optional): The skill of the
-        related id to update. Defaults to None.
-
-    Returns:
-        int: The ID of the newly inserted recommendation.
-    """
-    now = _now()
-    cur = conn.execute(
-        "INSERT INTO recommendations (text, related_skill_id, created_at) VALUES (?, ?, ?)",
-        (text, related_skill_id, now),
+    result = conn.execute(
+        recommendations.insert().values(
+            text=text,
+            related_skill_id=related_skill_id,
+            created_at=_now()
+        )
     )
     conn.commit()
+    
+    return result.inserted_primary_key[0]
 
-    return cur.lastrowid
 
-
-def list_recommendations(
-    conn: sqlite3.Connection,
-    status: Optional[str] = None,
-) -> List[sqlite3.Row]:
-    """Lists recommendations from the database, optionally filtered by their status.
-
-    Args:
-        conn (sqlite3.Connection): The SQLite database connection.
-        status (Optional[str], optional): The status to filer with. Defaults to None.
-
-    Returns:
-        List[sqlite3.Row]: _description_
-    """
+def list_recommendations(conn: Connection, status: Optional[str] = None) -> List[Row]:
+    query = select(recommendations).order_by(
+        recommendations.c.created_at.desc(), recommendations.c.id.desc()
+    )
     if status:
-        return conn.execute(
-            "SELECT * FROM recommendations WHERE status = ? ORDER BY created_at DESC",
-            (status,),
-        ).fetchall()
-
-    return conn.execute(
-        "SELECT * FROM recommendations ORDER BY created_at DESC"
-    ).fetchall()
+        query = query.where(recommendations.c.status == status)
+    
+    return conn.execute(query).mappings().all()
 
 
-def set_recommendation_status(
-    conn: sqlite3.Connection, rec_id: int, status: str
-) -> None:
-    """Sets the status of a recommendation in the database.
-
-    Args:
-        conn (sqlite3.Connection): The SQLite database connection.
-        rec_id (int): The ID of the recommendation to update.
-        status (str): The new status to set for the recommendation (e.g., "tried", "skipped").
-    """
-    conn.execute("UPDATE recommendations SET status = ? WHERE id = ?", (status, rec_id))
+def set_recommendation_status(conn: Connection, rec_id: int, status: str) -> None:
+    conn.execute(
+        update(recommendations).where(recommendations.c.id == rec_id).values(status=status)
+    )
     conn.commit()

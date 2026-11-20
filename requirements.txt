@@ -1,8 +1,7 @@
-# Core app
-toga>=0.4.0
-briefcase>=0.3.17
 anthropic>=0.40.0
 keyring>=25.0.0
-
-# Dev / testing
-pytest>=8.0.0
+sqlalchemy>=2.0
+fastapi>=0.115
+uvicorn[standard]>=0.30
+jinja2>=3.1
+python-multipart>=0.0.9

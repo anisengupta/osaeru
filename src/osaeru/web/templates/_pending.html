@@ -1,0 +1,17 @@
+{# Shown wherever unanalysed notes might be waiting. `auto` starts the analysis straight away. #}
+{% if pending %}
+<div class="pending" id="pending">
+  {% if auto %}
+  <p class="sync-status is-working" hx-post="/sync" hx-trigger="load" hx-target="#pending" hx-swap="innerHTML" role="status">
+    <span class="spinner" aria-hidden="true"></span> Claude is reading your note…
+  </p>
+  {% else %}
+  <form method="post" action="/sync" hx-post="/sync" hx-target="#pending" hx-swap="innerHTML" hx-disabled-elt="find button">
+    <p>{{ pending }} note{{ "s" if pending != 1 }} not analysed yet.</p>
+    <button type="submit" class="button button-quiet">
+      <span class="spinner htmx-indicator" aria-hidden="true"></span> Analyse now
+    </button>
+  </form>
+  {% endif %}
+</div>
+{% endif %}

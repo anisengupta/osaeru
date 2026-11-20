@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}To try – Osaeru{% endblock %}
+{% block content %}
+<div class="narrow">
+  <h1>To try next session</h1>
+  {% if recs %}
+  <ul class="recs">
+    {% for r in recs %}
+    <li class="rec">
+      <p class="rec-text">{{ r.text }}</p>
+      {% if r.skill_name %}<p class="rec-skill">{{ r.skill_name }}</p>{% endif %}
+      <div class="rec-actions">
+        <form method="post" action="/recommendations/{{ r.id }}"><input type="hidden" name="status" value="tried"><button class="button">Tried it</button></form>
+        <form method="post" action="/recommendations/{{ r.id }}"><input type="hidden" name="status" value="skipped"><button class="button button-quiet">Skip</button></form>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="empty">Nothing to try yet. Save a session note and Claude will suggest what to drill next.</p>
+  {% endif %}
+  {% if counts.get("tried") or counts.get("skipped") %}
+  <p class="tally">So far you’ve tried {{ counts.get("tried", 0) }} and skipped {{ counts.get("skipped", 0) }}.</p>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>{% block title %}Osaeru{% endblock %}</title>
+  <meta name="theme-color" content="#24345E">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Osaeru">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="manifest" href="{{ url_for('static', path='manifest.webmanifest') }}">
+  <link rel="apple-touch-icon" href="{{ url_for('static', path='icons/icon-180.png') }}">
+  <link rel="icon" href="{{ url_for('static', path='icons/icon-192.png') }}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap">
+  <link rel="stylesheet" href="{{ url_for('static', path='css/app.css') }}">
+  <script defer src="{{ url_for('static', path='vendor/htmx-2.0.4.min.js') }}"></script>
+  <script defer src="{{ url_for('static', path='vendor/cytoscape-3.30.4.min.js') }}"></script>
+  <script defer src="{{ url_for('static', path='vendor/dagre-0.8.5.min.js') }}"></script>
+  <script defer src="{{ url_for('static', path='vendor/cytoscape-dagre-2.5.0.js') }}"></script>
+  <script defer src="{{ url_for('static', path='js/app.js') }}"></script>
+</head>
+<body hx-boost="true">
+  <header class="masthead">
+    <div class="masthead-inner">
+      <a class="wordmark" href="/notes">
+        <span class="wordmark-latin">Osaeru</span>
+        <span class="wordmark-kana" lang="ja">おさえる</span>
+      </a>
+      <nav class="tabs" aria-label="Sections">
+        {% for slug, label in [("notes", "Notes"), ("flowchart", "Flowchart"), ("chat", "Chat"), ("recommendations", "To try"), ("profile", "Profile"), ("settings", "Settings")] %}
+        <a href="/{{ slug }}" class="tab{% if active == slug %} is-active{% endif %}"{% if active == slug %} aria-current="page"{% endif %}>{{ label }}</a>
+        {% endfor %}
+      </nav>
+    </div>
+    <div class="belt" aria-hidden="true"><span class="belt-tab"></span></div>
+  </header>
+
+  <main class="page page-{{ active }}">
+    {% if not has_key and active != "settings" %}
+    <p class="notice">Claude isn’t connected yet. <a href="/settings">Add your API key</a> to analyse notes and chat.</p>
+    {% endif %}
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>
