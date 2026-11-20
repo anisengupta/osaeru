@@ -1,0 +1,4 @@
+# Everything the app needs on Cloud Run: the normal requirements plus the
+# Cloud SQL connector. Not needed for local (SQLite) use.
+-r requirements.txt
+cloud-sql-python-connector[pg8000]>=1.12
