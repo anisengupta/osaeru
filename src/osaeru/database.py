@@ -54,7 +54,7 @@ sessions = Table(
     Column("id", Integer, primary_key=True),
     Column("occurred_at", Text, nullable=False),
     Column("notes", Text, nullable=False),
-    Column("feeling", Text),  # freeform: "good", "tired", "frustrated" etc
+    Column("feeling", Text),
     Column("created_at", Text, nullable=False),
     sqlite_autoincrement=True,
 )
@@ -64,8 +64,8 @@ skills = Table(
     metadata,
     Column("id", Integer, primary_key=True),
     Column("name", Text, nullable=False, unique=True),
-    Column("category", Text),  # e.g. "guard", "submission", "escape"
-    Column("confidence", Text),  # e.g. "learning", "comfortable", "reliable"
+    Column("category", Text),
+    Column("confidence", Text),
     Column("first_seen_session_id", Integer, ForeignKey("sessions.id")),
     Column("updated_at", Text, nullable=False),
     sqlite_autoincrement=True,
@@ -79,7 +79,7 @@ skill_edges = Table(
     Column("to_skill_id", Integer, ForeignKey("skills.id"), nullable=False),
     Column(
         "relation", Text, nullable=False
-    ),  # e.g. "leads_to", "counters", "depends_on"
+    ),
     UniqueConstraint("from_skill_id", "to_skill_id", "relation"),
     sqlite_autoincrement=True,
 )
@@ -88,7 +88,7 @@ chat_messages = Table(
     "chat_messages",
     metadata,
     Column("id", Integer, primary_key=True),
-    Column("role", Text, nullable=False),  # "user" or "assistant"
+    Column("role", Text, nullable=False),
     Column("content", Text, nullable=False),
     Column("session_id", Integer, ForeignKey("sessions.id")),
     Column("created_at", Text, nullable=False),
@@ -103,17 +103,25 @@ recommendations = Table(
     Column("related_skill_id", Integer, ForeignKey("skills.id")),
     Column(
         "status", String, nullable=False, server_default="new"
-    ),  # new | tried | skipped
+    ),
     Column("created_at", Text, nullable=False),
     sqlite_autoincrement=True,
+)
+
+app_settings = Table(
+    "app_settings",
+    metadata,
+    Column("key", Text, primary_key=True),
+    Column("value", Text, nullable=False),
+    Column("updated_at", Text, nullable=False),
 )
 
 sync_queue = Table(
     "sync_queue",
     metadata,
     Column("id", Integer, primary_key=True),
-    Column("kind", Text, nullable=False),  # "session_note" | "chat_message"
-    Column("payload", Text, nullable=False),  # JSON blob
+    Column("kind", Text, nullable=False),
+    Column("payload", Text, nullable=False),
     Column("created_at", Text, nullable=False),
     Column("sent_at", Text),
     sqlite_autoincrement=True,
@@ -691,4 +699,22 @@ def set_recommendation_status(conn: Connection, rec_id: int, status: str) -> Non
         .where(recommendations.c.id == rec_id)
         .values(status=status)
     )
+    conn.commit()
+
+
+def get_setting(conn: Connection, key: str) -> Optional[str]:
+    return conn.execute(
+        select(app_settings.c.value).where(app_settings.c.key == key)
+    ).scalar_one_or_none()
+
+
+def set_setting(conn: Connection, key: str, value: str) -> None:
+    values = dict(value=value, updated_at=_now())
+    stmt = _insert(conn, app_settings).values(key=key, **values)
+    conn.execute(stmt.on_conflict_do_update(index_elements=["key"], set_=values))
+    conn.commit()
+
+
+def delete_setting(conn: Connection, key: str) -> None:
+    conn.execute(app_settings.delete().where(app_settings.c.key == key))
     conn.commit()
