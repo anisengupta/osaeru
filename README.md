@@ -4,26 +4,81 @@
 
 ![alt text](docs/image.png)
 
-A personal, mostly-offline jiu jitsu training companion for iPad. Runs
-entirely on-device (SQLite + local notifications); only calls out to the
+A personal jiu jitsu training companion for iPad. Runs
+on Cloud Run in GCP and calls out to the
 Claude API when there's a connection, to parse session notes into a skills
 flowchart, chat about training, and generate recommendations.
 
-## Project layout
+## How it works
 
+### Architecture
+
+The same app runs in two places. On Cloud Run it sits behind Identity-Aware
+Proxy and uses Cloud SQL; on your Mac it uses a local SQLite file and the
+keychain. `database.py` and `claude_sync.py` pick the right one from
+environment variables.
+
+```mermaid
+flowchart TB
+    ipad["iPad Safari<br/>(production)"]
+    browser["Browser on your Mac<br/>(development)"]
+
+    subgraph gcp["Google Cloud"]
+        iap["Identity-Aware Proxy<br/>Google sign-in, only your account"]
+        cloudsql[("Cloud SQL<br/>PostgreSQL 16")]
+    end
+
+    subgraph app["Osaeru app: Cloud Run in production, localhost:8000 locally"]
+        web["web/main.py<br/>FastAPI routes + Jinja pages"]
+        graphmod["web/graph.py<br/>flowchart data for Cytoscape"]
+        sync["claude_sync.py<br/>Claude calls + API key storage"]
+        dbmod["database.py<br/>SQLAlchemy tables + queries"]
+    end
+
+    subgraph mac["Your Mac only"]
+        sqlite[("SQLite file<br/>~/.osaeru/osaeru.sqlite3")]
+        keychain["macOS keychain"]
+    end
+
+    claude["Anthropic API<br/>(Claude)"]
+
+    ipad -->|HTTPS| iap --> web
+    browser -->|"python -m osaeru.web"| web
+    web --> graphmod
+    web --> sync
+    web --> dbmod
+    sync --> dbmod
+    sync -->|"analyse notes, chat"| claude
+    dbmod ==>|"Cloud Run: CLOUD_SQL_INSTANCE set<br/>(API key stored in app_settings)"| cloudsql
+    dbmod -.->|"locally: no DB settings"| sqlite
+    sync -.->|"locally: API key"| keychain
 ```
-src/osaeru/
-  app.py              # Toga app entry point, tab navigation
-  database.py         # SQLite schema + all local read/write
-  claude_sync.py       # The only module that talks to the internet
-  notifications.py     # Local notification stub - see docstring, needs
-                        # verification against current Toga/iOS API
-  pages/
-    profile.py
-    notes.py
-    flowchart.py
-    chat.py
-    recommendations.py
+
+### What happens when you save a note
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor You
+    participant Web as web/main.py
+    participant DB as database.py
+    participant Sync as claude_sync.py
+    participant Claude as Anthropic API
+
+    You->>Web: Save note (Notes page)
+    Web->>DB: add_session_note()
+    DB-->>DB: store note + add to sync_queue
+    Web-->>You: Note saved, "Claude is reading your note…"
+    You->>Web: POST /sync (htmx, automatic)
+    Web->>Sync: run_sync()
+    Sync->>DB: pending notes + current flowchart
+    Sync->>Claude: note + flowchart
+    Claude-->>Sync: new skills, connections, recommendations (JSON)
+    Sync->>DB: upsert skills and edges, add recommendations, mark synced
+    Web-->>You: "Analysed 1 note. 2 new skills on your flowchart."
+    You->>Web: Open Flowchart
+    Web->>DB: get_flowchart()
+    Web-->>You: Cytoscape draws the graph in the browser
 ```
 
 ## Setting your Claude API key
@@ -33,15 +88,6 @@ key against the API before saving it (if you're offline it saves anyway and
 says so). On desktop the key goes in the OS keychain via `keyring`; on iOS,
 where `keyring` has no backend, it goes in a private file in the app's
 sandboxed data directory. It is never written to the database or a config file.
-
-## Known gaps to close before this is daily-usable
-
-- `notifications.py` is a stub - the local notification API needs
-  confirming against whatever Toga/Briefcase version you land on.
-- `flowchart.py` uses a simple circular layout - fine for a few dozen
-  skills, will get messy well beyond that.
-- No conflict handling if you edit the same session note from two devices
-  (not a concern for a single-iPad personal app, but worth knowing).
 
 ## Version control
 

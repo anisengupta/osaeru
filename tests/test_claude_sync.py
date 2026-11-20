@@ -12,7 +12,13 @@ import pytest
 
 from osaeru import claude_sync, database as db
 from osaeru.config import FLOWCHART_SYSTEM_PROMPT, KEYRING_KEY, KEYRING_SERVICE, MODEL
-from conftest import BrokenKeyring, api_error, connection_error, text_message
+from conftest import (
+    BrokenKeyring,
+    sqlite_only,
+    api_error,
+    connection_error,
+    text_message,
+)
 
 
 def analysis(skills=(), edges=(), recs=()):
@@ -54,7 +60,43 @@ class TestKeyringAvailable:
         assert claude_sync._keyring_available() is False
 
 
-class TestGetApiKey:
+def db_key():
+    c = db.connect()
+    try:
+        return db.get_setting(c, claude_sync.API_KEY_SETTING)
+    finally:
+        c.close()
+
+
+def put_db_key(value):
+    c = db.connect()
+    try:
+        db.set_setting(c, claude_sync.API_KEY_SETTING, value)
+    finally:
+        c.close()
+
+
+class TestWhereKeysLive:
+    @sqlite_only
+    def test_keychain_locally(self):
+        assert claude_sync._use_keychain() is True
+
+    def test_database_on_cloud_run(self, monkeypatch):
+        monkeypatch.setenv("K_SERVICE", "osaeru")
+        assert claude_sync._use_keychain() is False
+
+    def test_database_with_a_server_database(self, monkeypatch):
+        monkeypatch.setenv("OSAERU_DATABASE_URL", "sqlite://")
+        assert claude_sync._use_keychain() is False
+
+    def test_database_without_a_keychain(self, no_keyring):
+        assert claude_sync._use_keychain() is False
+
+
+@sqlite_only
+class TestKeychainStorage:
+    """Running locally: the key lives in the OS keychain, as before."""
+
     def test_none_when_nothing_stored(self):
         assert claude_sync.get_api_key() is None
 
@@ -62,65 +104,89 @@ class TestGetApiKey:
         isolated.keyring.set_password(KEYRING_SERVICE, KEYRING_KEY, "sk-ant-abc")
         assert claude_sync.get_api_key() == "sk-ant-abc"
 
-    def test_keychain_wins_over_file(self, isolated):
-        isolated.keyring.set_password(KEYRING_SERVICE, KEYRING_KEY, "from-keychain")
-        claude_sync._key_file.parent.mkdir(parents=True)
-        claude_sync._key_file.write_text("from-file")
-        assert claude_sync.get_api_key() == "from-keychain"
-
-    def test_falls_back_to_file_when_keychain_empty(self):
-        claude_sync._key_file.parent.mkdir(parents=True)
-        claude_sync._key_file.write_text("from-file")
-        assert claude_sync.get_api_key() == "from-file"
-
-    def test_file_used_without_keyring(self, no_keyring):
-        claude_sync._key_file.parent.mkdir(parents=True)
-        claude_sync._key_file.write_text("  sk-ant-file \n")
-        assert claude_sync.get_api_key() == "sk-ant-file"
-
-    def test_blank_file_means_no_key(self, no_keyring):
-        claude_sync._key_file.parent.mkdir(parents=True)
-        claude_sync._key_file.write_text("   \n")
-        assert claude_sync.get_api_key() is None
-
-    def test_broken_keychain_falls_back_and_warns(self, broken_keyring, caplog):
-        claude_sync._key_file.parent.mkdir(parents=True)
-        claude_sync._key_file.write_text("from-file")
-        with caplog.at_level(logging.WARNING, logger="osaeru.claude_sync"):
-            assert claude_sync.get_api_key() == "from-file"
-        assert "Keyring read failed" in caplog.text
-
-
-class TestSetApiKey:
     def test_stores_in_keychain_and_strips(self, isolated):
         assert claude_sync.set_api_key("  sk-ant-new \n") == "keychain"
         assert (
             isolated.keyring.get_password(KEYRING_SERVICE, KEYRING_KEY) == "sk-ant-new"
         )
-        assert not claude_sync._key_file.exists()
+        assert db_key() is None
 
-    def test_falls_back_to_private_file(self, no_keyring):
-        assert claude_sync.set_api_key("sk-ant-new") == "app storage"
-        assert claude_sync._key_file.read_text() == "sk-ant-new"
-        assert oct(os.stat(claude_sync._key_file).st_mode & 0o777) == "0o600"
+    def test_keychain_wins_over_database(self, isolated):
+        isolated.keyring.set_password(KEYRING_SERVICE, KEYRING_KEY, "from-keychain")
+        put_db_key("from-db")
+        assert claude_sync.get_api_key() == "from-keychain"
 
-    def test_broken_keychain_falls_back_to_file(self, broken_keyring):
-        assert claude_sync.set_api_key("sk-ant-new") == "app storage"
-        assert claude_sync._key_file.read_text() == "sk-ant-new"
+    def test_falls_back_to_database_when_keychain_empty(self):
+        put_db_key("from-db")
+        assert claude_sync.get_api_key() == "from-db"
+
+    def test_broken_keychain_reads_database_and_warns(self, broken_keyring, caplog):
+        put_db_key("from-db")
+        with caplog.at_level(logging.WARNING, logger="osaeru.claude_sync"):
+            assert claude_sync.get_api_key() == "from-db"
+        assert "Keyring read failed" in caplog.text
+
+    def test_broken_keychain_writes_database(self, broken_keyring):
+        assert claude_sync.set_api_key("sk-ant-new") == "the database"
+        assert db_key() == "sk-ant-new"
+
+
+class TestDatabaseStorage:
+    """On Cloud Run: no keychain, so the key lives in the database."""
+
+    @pytest.fixture(autouse=True)
+    def on_cloud_run(self, monkeypatch):
+        monkeypatch.setenv("K_SERVICE", "osaeru")
+        if not os.environ.get("OSAERU_DATABASE_URL"):
+            # Cloud Run refuses SQLite, so stand in a database URL for it.
+            monkeypatch.setenv(
+                "OSAERU_DATABASE_URL", f"sqlite:///{os.environ['OSAERU_DB_PATH']}"
+            )
+
+    def test_none_when_nothing_stored(self):
+        assert claude_sync.get_api_key() is None
+
+    def test_stores_in_database_and_strips(self, isolated):
+        assert claude_sync.set_api_key("  sk-ant-cloud \n") == "the database"
+        assert db_key() == "sk-ant-cloud"
+        assert isolated.keyring.store == {}  # never touches a keychain
 
     def test_round_trip(self):
         claude_sync.set_api_key("sk-ant-rt")
         assert claude_sync.get_api_key() == "sk-ant-rt"
 
+    def test_replacing_a_key(self):
+        claude_sync.set_api_key("sk-ant-old")
+        claude_sync.set_api_key("sk-ant-new")
+        assert claude_sync.get_api_key() == "sk-ant-new"
+
+    def test_survives_a_restart(self):
+        claude_sync.set_api_key("sk-ant-persist")
+        db.dispose_engines()  # like a new Cloud Run instance
+        assert claude_sync.get_api_key() == "sk-ant-persist"
+
+    def test_ignores_a_stray_keychain_entry(self, isolated):
+        isolated.keyring.set_password(KEYRING_SERVICE, KEYRING_KEY, "stale")
+        assert claude_sync.get_api_key() is None
+
+    def test_blank_value_means_no_key(self):
+        put_db_key("   ")
+        assert claude_sync.get_api_key() is None
+
+    def test_clear(self):
+        claude_sync.set_api_key("sk-ant-x")
+        claude_sync.clear_api_key()
+        assert claude_sync.get_api_key() is None and db_key() is None
+
 
 class TestClearApiKey:
-    def test_removes_keychain_and_file(self, isolated):
+    def test_removes_keychain_and_database(self, isolated):
         isolated.keyring.set_password(KEYRING_SERVICE, KEYRING_KEY, "k")
-        claude_sync._key_file.parent.mkdir(parents=True)
-        claude_sync._key_file.write_text("k")
+        put_db_key("k")
         claude_sync.clear_api_key()
+        assert isolated.keyring.store == {}
+        assert db_key() is None
         assert claude_sync.get_api_key() is None
-        assert not claude_sync._key_file.exists()
 
     def test_safe_when_nothing_stored(self):
         claude_sync.clear_api_key()
@@ -134,10 +200,9 @@ class TestClearApiKey:
         assert claude_sync.get_api_key() is None
 
 
-def test_init_storage_moves_fallback_file(tmp_path, no_keyring):
-    claude_sync.init_storage(tmp_path / "appdata")
-    claude_sync.set_api_key("k")
-    assert (tmp_path / "appdata" / "api_key").read_text() == "k"
+def test_round_trip():
+    claude_sync.set_api_key("sk-ant-rt")
+    assert claude_sync.get_api_key() == "sk-ant-rt"
 
 
 class TestVerifyApiKey:
