@@ -1,7 +1,14 @@
 """Shared test setup.
 
+By default tests run against SQLite. To run the whole suite against
+PostgreSQL as well (as Cloud SQL would be), point this at an empty database:
+
+    OSAERU_TEST_DATABASE_URL=postgresql+pg8000://user@localhost:5432/osaeru_test pytest
+
 Every test runs fully isolated:
 - HOME points at a temp dir, so nothing touches ~/.osaeru.
+- The database is a fresh SQLite file in that temp dir, or, in Postgres
+  mode, the test database with every table emptied first.
 - The OS keychain is replaced by an in-memory one.
 - claude_sync's fallback key file lives in the temp dir.
 - The Anthropic client is replaced by a fake, so no test can reach the
@@ -11,6 +18,7 @@ Every test runs fully isolated:
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+import os
 
 import httpx
 import keyring
@@ -113,13 +121,45 @@ def connection_error():
 
 
 # ---- fixtures ------------------------------------------------------------------
+TEST_PG_URL = os.environ.get("OSAERU_TEST_DATABASE_URL")
+DB_ENV_VARS = (
+    "OSAERU_DATABASE_URL",
+    "CLOUD_SQL_INSTANCE",
+    "DB_NAME",
+    "DB_USER",
+    "DB_PASS",
+    "CLOUD_SQL_IP_TYPE",
+    "K_SERVICE",
+)
+
+sqlite_only = pytest.mark.skipif(bool(TEST_PG_URL), reason="SQLite-specific")
+postgres_only = pytest.mark.skipif(not TEST_PG_URL, reason="needs OSAERU_TEST_DATABASE_URL")
+
+
+def _empty_postgres(url):
+    from sqlalchemy import create_engine, text
+
+    engine = create_engine(url)
+    db.metadata.create_all(engine)
+    names = ", ".join(t.name for t in db.metadata.sorted_tables)
+    with engine.begin() as c:
+        c.execute(text(f"TRUNCATE {names} RESTART IDENTITY CASCADE"))
+    engine.dispose()
+
+
 @pytest.fixture(autouse=True)
 def isolated(tmp_path, monkeypatch):
     """Applied to every test automatically."""
     home = tmp_path / "home"
     home.mkdir()
     monkeypatch.setenv("HOME", str(home))
+    for var in DB_ENV_VARS:
+        monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv("OSAERU_DB_PATH", str(tmp_path / "osaeru.sqlite3"))
+    if TEST_PG_URL:
+        _empty_postgres(TEST_PG_URL)
+        monkeypatch.setenv("OSAERU_DATABASE_URL", TEST_PG_URL)
+    db.dispose_engines()
 
     original = keyring.get_keyring()
     memory = MemoryKeyring()
@@ -135,12 +175,13 @@ def isolated(tmp_path, monkeypatch):
     yield SimpleNamespace(home=home, keyring=memory, tmp=tmp_path)
 
     keyring.set_keyring(original)
+    db.dispose_engines()
 
 
 @pytest.fixture
-def conn(tmp_path):
-    """A connection to a fresh database file."""
-    c = db.connect(tmp_path / "osaeru.sqlite3")
+def conn():
+    """A connection to the (empty) test database."""
+    c = db.connect()
     yield c
     c.close()
 

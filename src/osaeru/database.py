@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 import atexit
-import datetime
+import datetime as dt
 import json
 import os
 import threading
@@ -29,7 +29,6 @@ from sqlalchemy import (
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.engine import Connection, Engine, RowMapping
 from sqlalchemy.pool import NullPool
-from google.cloud.sql.connector import Connector, IPTypes
 
 Row = RowMapping
 
@@ -133,7 +132,7 @@ def backend() -> str:
         return "url"
     if os.environ.get("CLOUD_SQL_INSTANCE"):
         return "cloudsql"
-    return "sqllite"
+    return "sqlite"
 
 
 _engines = {}
@@ -141,7 +140,7 @@ _engines_lock = threading.Lock()
 _connector = None
 
 
-def _sqllite_engine(path: Path) -> Engine:
+def _sqlite_engine(path: Path) -> Engine:
     path.parent.mkdir(parents=True, exist_ok=True)
     engine = create_engine(f"sqlite:///{path}", poolclass=NullPool)
     
@@ -154,6 +153,7 @@ def _sqllite_engine(path: Path) -> Engine:
 
 def _cloudsql_engine() -> Engine:
     global _connector
+    from google.cloud.sql.connector import Connector, IPTypes
     
     instance = os.environ["CLOUD_SQL_INSTANCE"]
     name = os.environ.get("DB_NAME", "osaeru")
@@ -224,7 +224,7 @@ def get_engine(db_path: Optional[Path] = None) -> Engine:
         engine = _engines.get(key)
         if engine is None:
             if key[0] == "sqlite":
-                engine = _sqllite_engine(Path(key[1]))
+                engine = _sqlite_engine(Path(key[1]))
             elif key[0] == "url":
                 engine = create_engine(key[1], pool_pre_ping=True)
             else:
@@ -255,7 +255,7 @@ def _now() -> str:
 
 
 def _insert(conn: Connection, table: Table):
-    dialect = postgresql if conn.dialect.name == "postgressql" else sqlite
+    dialect = postgresql if conn.dialect.name == "postgresql" else sqlite
     return dialect.insert(table)
 
 

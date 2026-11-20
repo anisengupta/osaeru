@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 
 from osaeru import claude_sync, database as db
 from osaeru.web import main
-from conftest import api_error, connection_error, text_message
+from conftest import api_error, connection_error, sqlite_only, text_message
 
 PAGES = ["/notes", "/flowchart", "/chat", "/recommendations", "/profile", "/settings"]
 
@@ -27,7 +27,8 @@ def client():
 
 
 def open_conn():
-    return db.connect(Path(os.environ["OSAERU_DB_PATH"]))
+    """The same database the app is using (SQLite file, or Postgres in Postgres mode)."""
+    return db.connect()
 
 
 def seed(fn):
@@ -496,6 +497,7 @@ class TestHelpers:
         seed(setup)
         assert seed(main.recommendation_counts) == {"tried": 1, "new": 1}
 
+    @sqlite_only
     def test_open_db_uses_env_path(self, tmp_path, monkeypatch):
         target = tmp_path / "elsewhere.sqlite3"
         monkeypatch.setenv("OSAERU_DB_PATH", str(target))
@@ -503,11 +505,17 @@ class TestHelpers:
             db.add_session_note(c, "x")
         assert target.exists()
 
+    @sqlite_only
     def test_open_db_defaults_to_home(self, isolated, monkeypatch):
         monkeypatch.delenv("OSAERU_DB_PATH")
         with main.open_db():
             pass
         assert (isolated.home / ".osaeru" / "osaeru.sqlite3").exists()
+
+    def test_open_db_closes_connection(self):
+        with main.open_db() as c:
+            pass
+        assert c.closed
 
 
 class TestFriendlyError:

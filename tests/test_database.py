@@ -5,57 +5,292 @@ import json
 import sqlite3
 from pathlib import Path
 
+import pg8000.dbapi
 import pytest
+from sqlalchemy import inspect, select, func
+from sqlalchemy.engine import make_url
+from sqlalchemy.exc import IntegrityError, ProgrammingError
+
+# pg8000 reports foreign-key and CHECK violations as ProgrammingError;
+# sqlite3 reports them as IntegrityError. Either means the constraint held.
+CONSTRAINT_ERRORS = (IntegrityError, ProgrammingError)
 
 from osaeru import database as db
+from conftest import TEST_PG_URL, postgres_only, sqlite_only
 
 
 # ---- connection and setup -------------------------------------------------------
-class TestConnect:
-    def test_default_path_is_under_home(self, isolated):
-        assert db.default_db_path() == isolated.home / ".osaeru" / "osaeru.sqlite3"
+TABLES = {
+    "profile",
+    "sessions",
+    "skills",
+    "skill_edges",
+    "chat_messages",
+    "recommendations",
+    "sync_queue",
+}
 
-    def test_connect_with_no_path_uses_default(self, isolated):
+
+class TestConnect:
+    def test_creates_all_tables(self, conn):
+        assert TABLES <= set(inspect(conn).get_table_names())
+
+    def test_rows_are_mappings(self, conn):
+        db.add_session_note(conn, "x")
+        row = db.list_sessions(conn)[0]
+        assert row["notes"] == "x"
+        assert dict(row)["notes"] == "x"
+
+    def test_foreign_keys_enforced(self, conn):
+        with pytest.raises(CONSTRAINT_ERRORS):
+            db.add_recommendation(conn, "orphan", related_skill_id=999)
+
+    def test_profile_is_a_single_row(self, conn):
+        with pytest.raises(CONSTRAINT_ERRORS):
+            conn.execute(db.profile.insert().values(id=2, updated_at="x"))
+            conn.commit()
+
+    def test_reconnecting_keeps_data(self):
+        c = db.connect()
+        db.add_session_note(c, "persisted")
+        c.close()
+        db.dispose_engines()  # like a restart
+        c = db.connect()
+        assert [s["notes"] for s in db.list_sessions(c)] == ["persisted"]
+        c.close()
+
+    def test_engine_is_reused(self):
+        assert db.get_engine() is db.get_engine()
+
+    def test_dispose_engines_forgets_cached_engines(self):
+        first = db.get_engine()
+        db.dispose_engines()
+        assert db.get_engine() is not first
+
+    def test_creating_tables_twice_is_harmless(self):
+        db.connect().close()
+        db._create_tables(db.get_engine())  # e.g. a second instance starting up
+        c = db.connect()
+        assert TABLES <= set(inspect(c).get_table_names())
+        c.close()
+
+    def test_connections_can_be_closed(self):
         c = db.connect()
         c.close()
+        assert c.closed
+
+
+@postgres_only
+def test_parallel_startups_do_not_race():
+    """Several Cloud Run instances starting at once all create tables; the
+    advisory lock makes them take turns instead of failing."""
+    import threading
+    from sqlalchemy import create_engine, text
+
+    with db.get_engine().begin() as c:  # start from no tables at all
+        c.execute(text("DROP TABLE IF EXISTS " + ", ".join(t.name for t in db.metadata.sorted_tables) + " CASCADE"))
+    db.dispose_engines()
+
+    errors = []
+
+    def start_instance():
+        engine = create_engine(TEST_PG_URL)
+        try:
+            db._create_tables(engine)
+        except Exception as e:  # pragma: no cover - only on failure
+            errors.append(e)
+        finally:
+            engine.dispose()
+
+    threads = [threading.Thread(target=start_instance) for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert errors == []
+    c = db.connect()
+    assert TABLES <= set(inspect(c).get_table_names())
+    c.close()
+
+
+@sqlite_only
+class TestSqliteFile:
+    def test_default_path_is_under_home(self, isolated, monkeypatch):
+        monkeypatch.delenv("OSAERU_DB_PATH")
+        assert db.default_db_path() == isolated.home / ".osaeru" / "osaeru.sqlite3"
+
+    def test_env_overrides_path(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("OSAERU_DB_PATH", "~/custom.sqlite3")
+        assert db.default_db_path() == Path.home() / "custom.sqlite3"
+
+    def test_connect_with_no_path_uses_default(self, isolated, monkeypatch):
+        monkeypatch.delenv("OSAERU_DB_PATH")
+        db.connect().close()
         assert (isolated.home / ".osaeru" / "osaeru.sqlite3").exists()
 
-    def test_creates_missing_parent_directories(self, tmp_path):
+    def test_explicit_path_wins(self, tmp_path):
         path = tmp_path / "a" / "b" / "c.sqlite3"
         db.connect(path).close()
         assert path.exists()
 
-    def test_creates_all_tables(self, conn):
-        tables = {
-            r["name"]
-            for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
-        }
-        assert {
-            "profile",
-            "sessions",
-            "skills",
-            "skill_edges",
-            "chat_messages",
-            "recommendations",
-            "sync_queue",
-        } <= tables
+    def test_foreign_keys_pragma_on(self, conn):
+        assert conn.exec_driver_sql("PRAGMA foreign_keys").scalar() == 1
 
-    def test_rows_are_accessible_by_column_name(self, conn):
-        assert conn.row_factory is sqlite3.Row
-
-    def test_foreign_keys_enforced(self, conn):
-        assert conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1
-        with pytest.raises(sqlite3.IntegrityError):
-            db.add_recommendation(conn, "orphan", related_skill_id=999)
-
-    def test_reconnecting_keeps_data(self, tmp_path):
-        path = tmp_path / "x.sqlite3"
+    def test_opens_file_made_by_old_version(self, tmp_path):
+        """A database created by the pre-SQLAlchemy app (raw SQLite schema)
+        is used as-is, with its data intact."""
+        path = tmp_path / "old.sqlite3"
+        raw = sqlite3.connect(path)
+        raw.executescript(OLD_SCHEMA)
+        raw.execute(
+            "INSERT INTO sessions (occurred_at, notes, created_at) VALUES ('2026-01-01', 'old note', '2026-01-01')"
+        )
+        raw.commit()
+        raw.close()
         c = db.connect(path)
-        db.add_session_note(c, "persisted")
+        assert [s["notes"] for s in db.list_sessions(c)] == ["old note"]
+        db.add_session_note(c, "new note")
+        assert len(db.list_sessions(c)) == 2
         c.close()
-        c = db.connect(path)
-        assert [s["notes"] for s in db.list_sessions(c)] == ["persisted"]
+
+
+class TestChoosingBackend:
+    def test_sqlite_by_default(self, monkeypatch):
+        monkeypatch.delenv("OSAERU_DATABASE_URL", raising=False)
+        assert db.backend() == "sqlite"
+
+    def test_cloud_sql_when_instance_set(self, monkeypatch):
+        monkeypatch.delenv("OSAERU_DATABASE_URL", raising=False)
+        monkeypatch.setenv("CLOUD_SQL_INSTANCE", "p:r:i")
+        assert db.backend() == "cloudsql"
+
+    def test_url_wins_over_cloud_sql(self, monkeypatch):
+        monkeypatch.setenv("OSAERU_DATABASE_URL", "sqlite://")
+        monkeypatch.setenv("CLOUD_SQL_INSTANCE", "p:r:i")
+        assert db.backend() == "url"
+
+    def test_database_url_is_used(self, tmp_path, monkeypatch):
+        target = tmp_path / "via-url.sqlite3"
+        monkeypatch.setenv("OSAERU_DATABASE_URL", f"sqlite:///{target}")
+        db.connect().close()
+        assert target.exists()
+
+    def test_refuses_sqlite_on_cloud_run(self, monkeypatch):
+        monkeypatch.delenv("OSAERU_DATABASE_URL", raising=False)
+        monkeypatch.setenv("K_SERVICE", "osaeru")
+        with pytest.raises(RuntimeError, match="CLOUD_SQL_INSTANCE"):
+            db.connect()
+
+    def test_explicit_path_allowed_on_cloud_run(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("K_SERVICE", "osaeru")
+        db.connect(tmp_path / "explicit.sqlite3").close()
+
+
+class FakeConnector:
+    """Stands in for google.cloud.sql.connector.Connector."""
+
+    instances = []
+
+    def __init__(self, **kwargs):
+        self.init_kwargs = kwargs
+        self.connect_calls = []
+        self.closed = False
+        FakeConnector.instances.append(self)
+
+    def connect(self, instance, driver, **kwargs):
+        self.connect_calls.append((instance, driver, kwargs))
+        if TEST_PG_URL:  # hand back a real connection to the test Postgres
+            u = make_url(TEST_PG_URL)
+            return pg8000.dbapi.connect(
+                user=u.username, password=u.password, host=u.host, port=u.port, database=u.database
+            )
+        raise ConnectionRefusedError("no Cloud SQL in tests")
+
+    def close(self):
+        self.closed = True
+
+
+class TestCloudSql:
+    @pytest.fixture(autouse=True)
+    def fake_connector(self, monkeypatch):
+        import google.cloud.sql.connector as gcsc
+
+        FakeConnector.instances = []
+        monkeypatch.setattr(gcsc, "Connector", FakeConnector)
+        if hasattr(db, "Connector"):  # imported at the top of database.py
+            monkeypatch.setattr(db, "Connector", FakeConnector)
+        monkeypatch.setattr(db, "_connector", None)
+        monkeypatch.setattr(db.atexit, "register", lambda fn: None)
+        monkeypatch.delenv("OSAERU_DATABASE_URL", raising=False)
+        monkeypatch.setenv("CLOUD_SQL_INSTANCE", "my-proj:europe-west2:osaeru-db")
+        monkeypatch.setenv("DB_NAME", "osaeru")
+        monkeypatch.setenv("DB_USER", "osaeru-app")
+        monkeypatch.setenv("K_SERVICE", "osaeru")  # pretend we're on Cloud Run
+
+    def _first_connect(self):
+        try:
+            db.connect().close()
+        except Exception:
+            if TEST_PG_URL:
+                raise
+        (connector,) = FakeConnector.instances
+        return connector, connector.connect_calls[0]
+
+    def test_password_auth(self, monkeypatch):
+        from google.cloud.sql.connector import IPTypes
+
+        monkeypatch.setenv("DB_PASS", "secret")
+        connector, (instance, driver, kwargs) = self._first_connect()
+        assert connector.init_kwargs == {"refresh_strategy": "lazy"}
+        assert (instance, driver) == ("my-proj:europe-west2:osaeru-db", "pg8000")
+        assert kwargs == {"user": "osaeru-app", "db": "osaeru", "ip_type": IPTypes.PUBLIC, "password": "secret"}
+
+    def test_iam_auth_when_no_password(self):
+        _, (_, _, kwargs) = self._first_connect()
+        assert kwargs["enable_iam_auth"] is True
+        assert "password" not in kwargs
+
+    def test_private_ip(self, monkeypatch):
+        from google.cloud.sql.connector import IPTypes
+
+        monkeypatch.setenv("CLOUD_SQL_IP_TYPE", "PRIVATE")
+        _, (_, _, kwargs) = self._first_connect()
+        assert kwargs["ip_type"] == IPTypes.PRIVATE
+
+    def test_db_user_required(self, monkeypatch):
+        monkeypatch.delenv("DB_USER")
+        with pytest.raises(RuntimeError, match="DB_USER"):
+            db.connect()
+
+    @postgres_only
+    def test_end_to_end_through_connector(self):
+        c = db.connect()
+        db.add_session_note(c, "via Cloud SQL connector")
+        assert db.list_sessions(c)[0]["notes"] == "via Cloud SQL connector"
         c.close()
+        assert len(FakeConnector.instances) == 1  # one connector per process
+
+
+OLD_SCHEMA = """
+CREATE TABLE profile (id INTEGER PRIMARY KEY CHECK (id = 1), age INTEGER, sex TEXT,
+    weight_kg REAL, sessions_per_week REAL, updated_at TEXT NOT NULL);
+CREATE TABLE sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, occurred_at TEXT NOT NULL,
+    notes TEXT NOT NULL, feeling TEXT, created_at TEXT NOT NULL);
+CREATE TABLE skills (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE,
+    category TEXT, confidence TEXT, first_seen_session_id INTEGER REFERENCES sessions(id),
+    updated_at TEXT NOT NULL);
+CREATE TABLE skill_edges (id INTEGER PRIMARY KEY AUTOINCREMENT,
+    from_skill_id INTEGER NOT NULL REFERENCES skills(id),
+    to_skill_id INTEGER NOT NULL REFERENCES skills(id), relation TEXT NOT NULL,
+    UNIQUE(from_skill_id, to_skill_id, relation));
+CREATE TABLE chat_messages (id INTEGER PRIMARY KEY AUTOINCREMENT, role TEXT NOT NULL,
+    content TEXT NOT NULL, session_id INTEGER REFERENCES sessions(id), created_at TEXT NOT NULL);
+CREATE TABLE recommendations (id INTEGER PRIMARY KEY AUTOINCREMENT, text TEXT NOT NULL,
+    related_skill_id INTEGER REFERENCES skills(id), status TEXT NOT NULL DEFAULT 'new',
+    created_at TEXT NOT NULL);
+CREATE TABLE sync_queue (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL,
+    payload TEXT NOT NULL, created_at TEXT NOT NULL, sent_at TEXT);
+"""
 
 
 def test_now_is_utc_iso8601():
@@ -87,8 +322,10 @@ class TestSyncQueue:
         first, second = db.pending_sync_items(conn)
         db.mark_synced(conn, first["id"])
         assert [r["id"] for r in db.pending_sync_items(conn)] == [second["id"]]
-        sent = conn.execute("SELECT sent_at FROM sync_queue WHERE id=?", (first["id"],)).fetchone()
-        assert sent["sent_at"] is not None
+        sent = conn.execute(
+            select(db.sync_queue.c.sent_at).where(db.sync_queue.c.id == first["id"])
+        ).scalar_one()
+        assert sent is not None
 
     def test_empty_queue(self, conn):
         assert db.pending_sync_items(conn) == []
@@ -108,7 +345,7 @@ class TestProfile:
     def test_saving_again_updates_the_single_row(self, conn):
         db.save_profile(conn, age=38, sex="male", weight_kg=78, sessions_per_week=3)
         db.save_profile(conn, age=39, sex="male", weight_kg=80, sessions_per_week=4.5)
-        assert conn.execute("SELECT COUNT(*) FROM profile").fetchone()[0] == 1
+        assert conn.execute(select(func.count()).select_from(db.profile)).scalar_one() == 1
         p = db.get_profile(conn)
         assert (p["age"], p["weight_kg"], p["sessions_per_week"]) == (39, 80, 4.5)
 
