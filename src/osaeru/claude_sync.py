@@ -100,7 +100,7 @@ def _db_get_key() -> Optional[str]:
         value = db.get_setting(conn, API_KEY_SETTING)
     finally:
         conn.close()
-    
+
     return (value or "").strip() or None
 
 
@@ -117,7 +117,7 @@ def get_api_key() -> Optional[str]:
                 return key
         except keyring.errors.KeyringError as e:
             logger.warning("Keyring read failed, trying the database: %s", e)
-    
+
     return _db_get_key()
 
 
@@ -134,13 +134,13 @@ def set_api_key(api_key: str) -> str:
             return "keychain"
         except keyring.errors.KeyringError as e:
             logger.warning("Keyring write failed, using the database: %s", e)
-    
+
     conn = db.connect()
     try:
         db.set_setting(conn, API_KEY_SETTING, api_key)
     finally:
         conn.close()
-    
+
     return "the database"
 
 
@@ -153,7 +153,7 @@ def clear_api_key() -> None:
             keyring.delete_password(KEYRING_SERVICE, KEYRING_KEY)
         except keyring.errors.KeyringError:
             pass
-    
+
     conn = db.connect()
     try:
         db.delete_setting(conn, API_KEY_SETTING)

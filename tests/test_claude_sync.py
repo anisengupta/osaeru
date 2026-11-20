@@ -12,14 +12,24 @@ import pytest
 
 from osaeru import claude_sync, database as db
 from osaeru.config import FLOWCHART_SYSTEM_PROMPT, KEYRING_KEY, KEYRING_SERVICE, MODEL
-from conftest import BrokenKeyring, sqlite_only, api_error, connection_error, text_message
+from conftest import (
+    BrokenKeyring,
+    sqlite_only,
+    api_error,
+    connection_error,
+    text_message,
+)
 
 
 def analysis(skills=(), edges=(), recs=()):
     """A Claude reply in the shape FLOWCHART_SYSTEM_PROMPT asks for."""
     return text_message(
         json.dumps(
-            {"new_skills": list(skills), "new_edges": list(edges), "recommendations": list(recs)}
+            {
+                "new_skills": list(skills),
+                "new_edges": list(edges),
+                "recommendations": list(recs),
+            }
         )
     )
 
@@ -96,7 +106,9 @@ class TestKeychainStorage:
 
     def test_stores_in_keychain_and_strips(self, isolated):
         assert claude_sync.set_api_key("  sk-ant-new \n") == "keychain"
-        assert isolated.keyring.get_password(KEYRING_SERVICE, KEYRING_KEY) == "sk-ant-new"
+        assert (
+            isolated.keyring.get_password(KEYRING_SERVICE, KEYRING_KEY) == "sk-ant-new"
+        )
         assert db_key() is None
 
     def test_keychain_wins_over_database(self, isolated):
@@ -127,7 +139,9 @@ class TestDatabaseStorage:
         monkeypatch.setenv("K_SERVICE", "osaeru")
         if not os.environ.get("OSAERU_DATABASE_URL"):
             # Cloud Run refuses SQLite, so stand in a database URL for it.
-            monkeypatch.setenv("OSAERU_DATABASE_URL", f"sqlite:///{os.environ['OSAERU_DB_PATH']}")
+            monkeypatch.setenv(
+                "OSAERU_DATABASE_URL", f"sqlite:///{os.environ['OSAERU_DB_PATH']}"
+            )
 
     def test_none_when_nothing_stored(self):
         assert claude_sync.get_api_key() is None
@@ -211,7 +225,11 @@ class TestVerifyApiKey:
 
     @pytest.mark.parametrize(
         "error",
-        [connection_error(), api_error(anthropic.InternalServerError, 500), TimeoutError()],
+        [
+            connection_error(),
+            api_error(anthropic.InternalServerError, 500),
+            TimeoutError(),
+        ],
     )
     def test_cannot_check(self, fake_claude, error):
         fake_claude.models_error = error
@@ -246,11 +264,17 @@ class TestExtractJson:
         with pytest.raises(json.JSONDecodeError):
             claude_sync._extract_json("not json")
 
-    @pytest.mark.xfail(strict=True, reason="Known gap: prose before the code fence isn't stripped")
+    @pytest.mark.xfail(
+        strict=True, reason="Known gap: prose before the code fence isn't stripped"
+    )
     def test_prose_before_fence(self):
-        assert claude_sync._extract_json('Here you go:\n```json\n{"a": 1}\n```') == {"a": 1}
+        assert claude_sync._extract_json('Here you go:\n```json\n{"a": 1}\n```') == {
+            "a": 1
+        }
 
-    @pytest.mark.xfail(strict=True, reason="Known gap: only a lowercase 'json' fence tag is stripped")
+    @pytest.mark.xfail(
+        strict=True, reason="Known gap: only a lowercase 'json' fence tag is stripped"
+    )
     def test_uppercase_fence_tag(self):
         assert claude_sync._extract_json('```JSON\n{"a": 1}\n```') == {"a": 1}
 
@@ -277,7 +301,9 @@ class TestAnalyseSessionNote:
 
     def test_ignores_non_text_blocks(self, with_key, fake_claude):
         thinking = SimpleNamespace(type="thinking", thinking="hmm")
-        fake_claude.replies = [text_message('{"new_skills": []}', extra_blocks=[thinking])]
+        fake_claude.replies = [
+            text_message('{"new_skills": []}', extra_blocks=[thinking])
+        ]
         assert claude_sync.analyse_session_note("x", {}) == {"new_skills": []}
 
     def test_truncated_reply_raises(self, with_key, fake_claude):
@@ -321,12 +347,22 @@ class TestRunSync:
         assert claude_sync.run_sync(conn) == 0
         assert fake_claude.calls == []
 
-    def test_applies_skills_edges_and_recommendations(self, conn, with_key, fake_claude):
+    def test_applies_skills_edges_and_recommendations(
+        self, conn, with_key, fake_claude
+    ):
         sid = db.add_session_note(conn, "Knee cut to side control")
         fake_claude.replies = [
             analysis(
-                skills=[{"name": "Knee Cut", "category": "passing", "confidence": "learning"}],
-                edges=[{"from": "Knee Cut", "to": "Side Control", "relation": "leads_to"}],
+                skills=[
+                    {
+                        "name": "Knee Cut",
+                        "category": "passing",
+                        "confidence": "learning",
+                    }
+                ],
+                edges=[
+                    {"from": "Knee Cut", "to": "Side Control", "relation": "leads_to"}
+                ],
                 recs=[
                     {"text": "Win the underhook first", "related_skill": "Knee Cut"},
                     {"text": "General drilling"},
@@ -346,9 +382,13 @@ class TestRunSync:
         assert recs == {"Win the underhook first": knee["id"], "General drilling": None}
         assert db.pending_sync_items(conn) == []
 
-    def test_recommendation_for_unknown_skill_creates_it(self, conn, with_key, fake_claude):
+    def test_recommendation_for_unknown_skill_creates_it(
+        self, conn, with_key, fake_claude
+    ):
         db.add_session_note(conn, "x")
-        fake_claude.replies = [analysis(recs=[{"text": "Try it", "related_skill": "Leg Drag"}])]
+        fake_claude.replies = [
+            analysis(recs=[{"text": "Try it", "related_skill": "Leg Drag"}])
+        ]
         claude_sync.run_sync(conn)
         assert [n["name"] for n in db.get_flowchart(conn)["nodes"]] == ["Leg Drag"]
 
@@ -365,7 +405,9 @@ class TestRunSync:
         assert "Armbar" not in fake_claude.calls[0]["messages"][0]["content"]
         assert "Armbar" in fake_claude.calls[1]["messages"][0]["content"]
 
-    def test_chat_items_are_marked_without_calling_claude(self, conn, with_key, fake_claude):
+    def test_chat_items_are_marked_without_calling_claude(
+        self, conn, with_key, fake_claude
+    ):
         db.add_chat_message(conn, "user", "hi")
         assert claude_sync.run_sync(conn) == 1
         assert fake_claude.calls == []
@@ -378,7 +420,9 @@ class TestRunSync:
         fake_claude.replies = [analysis(), connection_error()]
         with pytest.raises(anthropic.APIConnectionError):
             claude_sync.run_sync(conn)
-        pending = [json.loads(i["payload"])["notes"] for i in db.pending_sync_items(conn)]
+        pending = [
+            json.loads(i["payload"])["notes"] for i in db.pending_sync_items(conn)
+        ]
         assert pending == ["fails", "never reached"]
         assert len(fake_claude.calls) == 2
 
@@ -419,7 +463,9 @@ class TestRunSync:
     def test_failed_item_leaves_no_partial_changes(self, conn, with_key, fake_claude):
         db.add_session_note(conn, "x")
         fake_claude.replies = [
-            analysis(skills=[{"name": "Armbar"}], edges=[{"from": "Armbar"}])  # edge missing keys
+            analysis(
+                skills=[{"name": "Armbar"}], edges=[{"from": "Armbar"}]
+            )  # edge missing keys
         ]
         with pytest.raises(KeyError):
             claude_sync.run_sync(conn)

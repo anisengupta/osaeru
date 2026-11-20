@@ -133,7 +133,9 @@ DB_ENV_VARS = (
 )
 
 sqlite_only = pytest.mark.skipif(bool(TEST_PG_URL), reason="SQLite-specific")
-postgres_only = pytest.mark.skipif(not TEST_PG_URL, reason="needs OSAERU_TEST_DATABASE_URL")
+postgres_only = pytest.mark.skipif(
+    not TEST_PG_URL, reason="needs OSAERU_TEST_DATABASE_URL"
+)
 
 
 def _empty_postgres(url):

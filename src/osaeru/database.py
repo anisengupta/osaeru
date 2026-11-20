@@ -77,9 +77,7 @@ skill_edges = Table(
     Column("id", Integer, primary_key=True),
     Column("from_skill_id", Integer, ForeignKey("skills.id"), nullable=False),
     Column("to_skill_id", Integer, ForeignKey("skills.id"), nullable=False),
-    Column(
-        "relation", Text, nullable=False
-    ),
+    Column("relation", Text, nullable=False),
     UniqueConstraint("from_skill_id", "to_skill_id", "relation"),
     sqlite_autoincrement=True,
 )
@@ -101,9 +99,7 @@ recommendations = Table(
     Column("id", Integer, primary_key=True),
     Column("text", Text, nullable=False),
     Column("related_skill_id", Integer, ForeignKey("skills.id")),
-    Column(
-        "status", String, nullable=False, server_default="new"
-    ),
+    Column("status", String, nullable=False, server_default="new"),
     Column("created_at", Text, nullable=False),
     sqlite_autoincrement=True,
 )
@@ -244,7 +240,7 @@ def get_engine(db_path: Optional[Path] = None) -> Engine:
     CloudSQL.
 
     Args:
-        db_path (Optional[Path], optional): The database path. 
+        db_path (Optional[Path], optional): The database path.
         Defaults to None.
 
     Raises:
@@ -291,8 +287,7 @@ def get_engine(db_path: Optional[Path] = None) -> Engine:
 
 
 def dispose_engines() -> None:
-    """Disposes of a SQL engine.
-    """
+    """Disposes of a SQL engine."""
     with _engines_lock:
         for engine in _engines.values():
             engine.dispose()
@@ -303,7 +298,7 @@ def connect(db_path: Optional[Path] = None) -> Connection:
     """Connects a SQL engine.
 
     Args:
-        db_path (Optional[Path], optional): The database path. 
+        db_path (Optional[Path], optional): The database path.
         Defaults to None.
 
     Returns:
@@ -434,7 +429,7 @@ def add_session_note(
     Args:
         conn (Connection): The database connection.
         notes (str): The notes inputed from the user.
-        feeling (Optional[str], optional): The feeling 
+        feeling (Optional[str], optional): The feeling
         of the user related to the session. Defaults to None.
 
     Returns:
@@ -459,7 +454,7 @@ def list_sessions(conn: Connection, limit: int = 50) -> List[Row]:
 
     Args:
         conn (Connection): The database connection.
-        limit (int, optional): The number of sessions 
+        limit (int, optional): The number of sessions
         to retrieve. Defaults to 50.
 
     Returns:
@@ -488,11 +483,11 @@ def upsert_skill(
     Args:
         conn (Connection): The database connection.
         name (str): The name of the skill to upsert.
-        category (Optional[str], optional): The category 
+        category (Optional[str], optional): The category
         of the skill to upsert. Defaults to None.
-        confidence (Optional[str], optional): The confidence 
+        confidence (Optional[str], optional): The confidence
         value of the skill to upsert. Defaults to None.
-        session_id (Optional[int], optional): The session 
+        session_id (Optional[int], optional): The session
         id related to the skill. Defaults to None.
 
     Returns:
@@ -595,7 +590,7 @@ def add_chat_message(
         conn (Connection): The database connection.
         role (str): The role of the user logged in.
         content (str): The content of the chat.
-        session_id (Optional[int], optional): The session id. 
+        session_id (Optional[int], optional): The session id.
         Defaults to None.
 
     Returns:
@@ -623,7 +618,7 @@ def list_chat_messages(conn: Connection, limit: int = 200) -> List[Row]:
 
     Args:
         conn (Connection): The database connection.
-        limit (int, optional): The limit of chats to retrieve. 
+        limit (int, optional): The limit of chats to retrieve.
         Defaults to 200.
 
     Returns:
@@ -650,7 +645,7 @@ def add_recommendation(
     Args:
         conn (Connection): The database connection.
         text (str): The text of the recommendation.
-        related_skill_id (Optional[int], optional): The skill 
+        related_skill_id (Optional[int], optional): The skill
         id related to the recommendation. Defaults to None.
 
     Returns:
@@ -671,7 +666,7 @@ def list_recommendations(conn: Connection, status: Optional[str] = None) -> List
 
     Args:
         conn (Connection): The database connection.
-        status (Optional[str], optional): The status of those recommendations. 
+        status (Optional[str], optional): The status of those recommendations.
         Defaults to None.
 
     Returns:
