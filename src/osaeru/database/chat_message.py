@@ -2,8 +2,9 @@
 
 from typing import Optional, List
 from sqlalchemy.engine import Connection
+from sqlalchemy import select
 
-from osaeru.database.config import Row
+from osaeru.database.config import Row, chat_messages
 
 
 def add_chat_message(

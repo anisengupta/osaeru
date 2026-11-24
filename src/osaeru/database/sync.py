@@ -1,9 +1,10 @@
 """Funcs for dealing with the sync with the db"""
 
-from typing import Dict, Any
+from typing import Dict, Any, List
 from sqlalchemy.engine import Connection
-from sqlalchemy import update
+from sqlalchemy import update, select
 
+from osaeru.database.config import Row, sync_queue
 from osaeru.database.helper import _now
 
 

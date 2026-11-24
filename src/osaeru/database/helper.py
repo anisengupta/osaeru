@@ -2,7 +2,25 @@
 
 import os
 from pathlib import Path
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Engine, Connection
+from sqlalchemy import Table, create_engine, event
+from sqlalchemy.pool import NullPool
+import threading
+
+from osaeru.database.config import metadata
+
+
+def default_db_path() -> Path:
+    """The default path for the SQLite database file, located
+    in the user's home directory under `.osaeru/osaeru.sqlite3`.
+
+    Returns:
+        Path: The default path for the SQLite database file.
+    """
+    env_path = os.environ.get("OSAERU_DB_PATH")
+    if env_path:
+        return Path(env_path).expanduser()
+    return Path.home() / ".osaeru" / "osaeru.sqlite3"
 
 
 def backend() -> str:

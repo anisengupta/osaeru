@@ -2,8 +2,9 @@
 
 from typing import Optional
 from sqlalchemy.engine import Connection
+from sqlalchemy import select
 
-from osaeru.database.config import Row
+from osaeru.database.config import Row, profile
 from osaeru.database.helper import _insert
 
 

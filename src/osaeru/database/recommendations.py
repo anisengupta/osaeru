@@ -2,8 +2,9 @@
 
 from typing import Optional, List
 from sqlalchemy.engine import Connection
+from sqlalchemy import select
 
-from osaeru.database.config import Row
+from osaeru.database.config import Row, recommendations
 
 
 def add_recommendation(

@@ -1,9 +1,12 @@
 """Helper funcs for database operations."""
 
+import os
 import keyring
 from anthropic import Anthropic
 import json
 from typing import Dict, Any, Optional
+
+from osaeru.database.helper import backend
 
 
 API_KEY_SETTING = "anthropic_api_key"
@@ -70,7 +73,7 @@ def _use_keychain() -> bool:
         is to be used.
     """
     return (
-        db.backend() == "sqlite"
+        backend() == "sqlite"
         and not os.environ.get("K_SERVICE")
         and _keyring_available()
     )
@@ -83,9 +86,9 @@ def _db_get_key() -> Optional[str]:
         Optional[str]: The Anthropic API key
         retrieved from the database.
     """
-    conn = db.connect()
+    conn = connect()
     try:
-        value = db.get_setting(conn, API_KEY_SETTING)
+        value = get_setting(conn, API_KEY_SETTING)
     finally:
         conn.close()
 

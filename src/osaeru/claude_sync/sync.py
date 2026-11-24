@@ -2,8 +2,6 @@
 
 import logging
 
-from osaeru
-
 logger = logging.getLogger(__name__)
 
 

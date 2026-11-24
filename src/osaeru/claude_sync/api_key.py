@@ -1,10 +1,11 @@
 """Funcs for API key operations for the database."""
 
+from typing import Optional
 import keyring
 from anthropic import Anthropic
 import logging
 
-from osaeru.database.helper import API_KEY_SETTING
+from osaeru.claude_sync.helper import API_KEY_SETTING, _use_keychain
 from osaeru.config import KEYRING_SERVICE, KEYRING_KEY
 
 logger = logging.getLogger(__name__)

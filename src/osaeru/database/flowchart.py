@@ -2,6 +2,9 @@
 
 from typing import Dict, Any
 from sqlalchemy.engine import Connection
+from sqlalchemy import select
+
+from osaeru.database.config import skills, skill_edges
 
 
 def get_flowchart(conn: Connection) -> Dict[str, Any]:

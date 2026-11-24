@@ -28,8 +28,18 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.engine import Connection
 
-from osaeru import claude_sync, database as db
+from osaeru.claude_sync.api_key import get_api_key, verify_api_key, set_api_key
+from osaeru.claude_sync.sync import run_sync
+from osaeru.claude_sync.chat import chat_reply
 from osaeru.web.graph import flowchart_payload
+
+from osaeru.database.engine import connect
+from osaeru.database.sync import pending_sync_items
+from osaeru.database.flowchart import get_flowchart
+from osaeru.database.recommendations import list_recommendations, set_recommendation_status
+from osaeru.database.sessions import list_sessions, add_session_note
+from osaeru.database.chat_message import list_chat_messages, add_chat_message
+from osaeru.database.profile import get_profile, save_profile
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +85,7 @@ def open_db() -> Iterator[Connection]:
     Raises:
         sqlite3.Error: If there is an issue connecting to the database.
     """
-    conn = db.connect()
+    conn = connect()
     try:
         yield conn
     finally:
@@ -93,7 +103,7 @@ def pending_note_count(conn: Connection) -> int:
         int: The count of pending session notes.
     """
     return sum(
-        1 for item in db.pending_sync_items(conn) if item["kind"] == "session_note"
+        1 for item in pending_sync_items(conn) if item["kind"] == "session_note"
     )
 
 
@@ -109,10 +119,10 @@ def new_recommendations(conn: Connection) -> List[Dict[str, Any]]:
         record and an additional "skill_name" field that maps the "related_skill_id"
         to the corresponding skill name.
     """
-    names = {n["id"]: n["name"] for n in db.get_flowchart(conn)["nodes"]}
+    names = {n["id"]: n["name"] for n in get_flowchart(conn)["nodes"]}
     return [
         {**dict(r), "skill_name": names.get(r["related_skill_id"])}
-        for r in db.list_recommendations(conn, status="new")
+        for r in list_recommendations(conn, status="new")
     ]
 
 
@@ -125,7 +135,7 @@ def recommendation_counts(conn: Connection) -> Dict[str, int]:
         Dict[str, int]: A dictionary where the keys are recommendation statuses
         and the values are the counts of recommendations for each status.
     """
-    return dict(Counter(r["status"] for r in db.list_recommendations(conn)))
+    return dict(Counter(r["status"] for r in list_recommendations(conn)))
 
 
 def render(request: Request, template: str, active: str, **context) -> HTMLResponse:
@@ -142,7 +152,7 @@ def render(request: Request, template: str, active: str, **context) -> HTMLRespo
     return templates.TemplateResponse(
         request,
         template,
-        {"active": active, "has_key": bool(claude_sync.get_api_key()), **context},
+        {"active": active, "has_key": bool(get_api_key()), **context},
     )
 
 
@@ -178,7 +188,7 @@ def friendly_error(exc: Exception) -> str:
         - If the response from Claude is cut off due to token limits, recommends a shorter note.
         - For other exceptions, returns a generic error message with the exception details.
     """
-    if not claude_sync.get_api_key():
+    if not get_api_key():
         return "Add your Claude API key in Settings first."
     if isinstance(exc, anthropic.AuthenticationError):
         return "Claude rejected the API key. Check it in Settings."
@@ -221,7 +231,7 @@ def notes_page(
             request,
             "notes.html",
             "notes",
-            sessions=db.list_sessions(conn),
+            sessions=list_sessions(conn),
             pending=pending_note_count(conn),
             feelings=FEELINGS,
             saved=saved,
@@ -248,7 +258,7 @@ def save_note(notes: str = Form(""), feeling: str = Form("")):
     if not notes:
         return redirect("/notes", error="Write something about the session first.")
     with open_db() as conn:
-        db.add_session_note(conn, notes, feeling if feeling in FEELINGS else None)
+        add_session_note(conn, notes, feeling if feeling in FEELINGS else None)
     return redirect("/notes", saved=1)
 
 
@@ -274,9 +284,9 @@ def sync(request: Request):
     message, ok = "", True
     try:
         with open_db() as conn:
-            before = len(db.get_flowchart(conn)["nodes"])
-            processed = claude_sync.run_sync(conn)
-            new_skills = len(db.get_flowchart(conn)["nodes"]) - before
+            before = len(get_flowchart(conn)["nodes"])
+            processed = run_sync(conn)
+            new_skills = len(get_flowchart(conn)["nodes"]) - before
         if processed:
             message = (
                 f"Analysed {processed} note{'s' if processed != 1 else ''}. "
@@ -307,7 +317,7 @@ def flowchart_page(request: Request):
         HttpResponse: The rendered HTML response for the flowchart page.
     """
     with open_db() as conn:
-        graph = db.get_flowchart(conn)
+        graph = get_flowchart(conn)
         return render(
             request,
             "flowchart.html",
@@ -329,7 +339,7 @@ def flowchart_data() -> JSONResponse:
     """
     with open_db() as conn:
         return JSONResponse(
-            flowchart_payload(db.get_flowchart(conn), new_recommendations(conn))
+            flowchart_payload(get_flowchart(conn), new_recommendations(conn))
         )
 
 
@@ -348,7 +358,7 @@ def chat_page(request: Request, error: Optional[str] = None):
             request,
             "chat.html",
             "chat",
-            messages=db.list_chat_messages(conn),
+            messages=list_chat_messages(conn),
             error=error,
         )
 
@@ -370,15 +380,15 @@ def send_chat(message: str = Form("")):
     if not text:
         return redirect("/chat")
     with open_db() as conn:
-        db.add_chat_message(conn, "user", text)
+        add_chat_message(conn, "user", text)
         try:
             history = [
                 {"role": m["role"], "content": m["content"]}
-                for m in db.list_chat_messages(conn)
+                for m in list_chat_messages(conn)
                 if m["role"] in ("user", "assistant")
             ]
-            reply = claude_sync.chat_reply(history, db.get_flowchart(conn))
-            db.add_chat_message(conn, "assistant", reply)
+            reply = chat_reply(history, get_flowchart(conn))
+            add_chat_message(conn, "assistant", reply)
         except Exception as exc:
             logger.exception("Chat reply failed")
             return redirect(
@@ -428,7 +438,7 @@ def update_recommendation(rec_id: int, status: str = Form(...)):
     """
     if status in ("tried", "skipped", "new"):
         with open_db() as conn:
-            db.set_recommendation_status(conn, rec_id, status)
+            set_recommendation_status(conn, rec_id, status)
     return redirect("/recommendations")
 
 
@@ -450,7 +460,7 @@ def profile_page(
             request,
             "profile.html",
             "profile",
-            profile=db.get_profile(conn),
+            profile=get_profile(conn),
             sexes=SEXES,
             saved=saved,
             error=error,
@@ -492,7 +502,7 @@ def save_profile(
             "/profile", error="Age, weight and sessions per week need to be numbers."
         )
     with open_db() as conn:
-        db.save_profile(conn, **values)
+        save_profile(conn, **values)
     return redirect("/profile", saved=1)
 
 
@@ -509,7 +519,7 @@ def settings_page(
     Returns:
         HttpResponse: The rendered settings page with the provided context.
     """
-    key = claude_sync.get_api_key()
+    key = get_api_key()
     return render(
         request,
         "settings.html",
@@ -538,12 +548,12 @@ def save_key(api_key: str = Form("")):
             "/settings",
             error="That doesn't look like an Anthropic key. They start with sk-ant-.",
         )
-    ok = claude_sync.verify_api_key(key)
+    ok = verify_api_key(key)
     if ok is False:
         return redirect(
             "/settings", error="Anthropic rejected that key, so it wasn't saved."
         )
-    where = claude_sync.set_api_key(key)
+    where = set_api_key(key)
     if ok:
         return redirect("/settings", msg=f"Key checked and saved to {where}.")
     return redirect(
@@ -561,7 +571,7 @@ def remove_key():
     Returns:
         flask.Response: A redirect response to the "/settings" page with a message.
     """
-    claude_sync.clear_api_key()
+    clear_api_key()
     return redirect("/settings", msg="Key removed.")
 
 

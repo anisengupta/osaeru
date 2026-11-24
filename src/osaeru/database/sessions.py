@@ -1,8 +1,10 @@
 """Funcs to add and get session notes"""
 
-from typing import Optional
+from typing import Optional, List
 from sqlalchemy.engine import Connection
+from sqlalchemy import select
 
+from osaeru.database.config import Row, sessions
 from osaeru.database.helper import _now
 from osaeru.database.sync import queue_for_sync
 

@@ -2,10 +2,19 @@
 
 from typing import Optional
 import os
-from sqlalchemy.engine import Engine
+from pathlib import Path
+from sqlalchemy.engine import Engine, Connection
 from sqlalchemy import create_engine
 
-from osaeru.database.helper import backend, _sqlite_engine, _cloudsql_engine, _create_tables
+from osaeru.database.helper import (
+    default_db_path, 
+    backend, 
+    _sqlite_engine, 
+    _cloudsql_engine, 
+    _create_tables, 
+    _engines_lock,
+    _engines,
+)
 
 
 def get_engine(db_path: Optional[Path] = None) -> Engine:
