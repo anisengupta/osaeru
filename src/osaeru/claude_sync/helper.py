@@ -7,6 +7,9 @@ import json
 from typing import Dict, Any, Optional
 
 from osaeru.database.helper import backend
+from osaeru.database.engine import connect
+from osaeru.database.settings import get_setting
+from osaeru.claude_sync.api_key import get_api_key
 
 
 API_KEY_SETTING = "anthropic_api_key"

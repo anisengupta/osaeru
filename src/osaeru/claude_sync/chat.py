@@ -4,6 +4,7 @@ from typing import List, Dict, Any
 import json
 
 from osaeru.config import MODEL
+from osaeru.claude_sync.helper import _client
 
 
 def chat_reply(history: List[Dict[str, str]], flowchart: Dict[str, Any]) -> str:

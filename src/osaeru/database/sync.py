@@ -3,6 +3,7 @@
 from typing import Dict, Any, List
 from sqlalchemy.engine import Connection
 from sqlalchemy import update, select
+import json
 
 from osaeru.database.config import Row, sync_queue
 from osaeru.database.helper import _now

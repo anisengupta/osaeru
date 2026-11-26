@@ -2,11 +2,14 @@
 
 from typing import Optional
 import keyring
+import anthropic
 from anthropic import Anthropic
 import logging
 
-from osaeru.claude_sync.helper import API_KEY_SETTING, _use_keychain
+from osaeru.claude_sync.helper import API_KEY_SETTING, _use_keychain, _keyring_available, _db_get_key
 from osaeru.config import KEYRING_SERVICE, KEYRING_KEY
+from osaeru.database.engine import connect
+from osaeru.database.settings import set_setting, delete_setting
 
 logger = logging.getLogger(__name__)
 
@@ -42,9 +45,9 @@ def set_api_key(api_key: str) -> str:
         except keyring.errors.KeyringError as e:
             logger.warning("Keyring write failed, using the database: %s", e)
 
-    conn = db.connect()
+    conn = connect()
     try:
-        db.set_setting(conn, API_KEY_SETTING, api_key)
+        set_setting(conn, API_KEY_SETTING, api_key)
     finally:
         conn.close()
 
@@ -61,9 +64,9 @@ def clear_api_key() -> None:
         except keyring.errors.KeyringError:
             pass
 
-    conn = db.connect()
+    conn = connect()
     try:
-        db.delete_setting(conn, API_KEY_SETTING)
+        delete_setting(conn, API_KEY_SETTING)
     finally:
         conn.close()
 

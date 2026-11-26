@@ -2,6 +2,7 @@
 
 from typing import Dict, Any
 import logging
+import json
 
 from osaeru.config import MODEL, FLOWCHART_SYSTEM_PROMPT
 from osaeru.database.helper import _client, _extract_json

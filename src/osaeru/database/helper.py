@@ -3,9 +3,12 @@
 import os
 from pathlib import Path
 from sqlalchemy.engine import Engine, Connection
-from sqlalchemy import Table, create_engine, event
+from sqlalchemy import Table, create_engine, event, text
+from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.pool import NullPool
 import threading
+import datetime as dt
+import atexit
 
 from osaeru.database.config import metadata
 

@@ -5,6 +5,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy import select
 
 from osaeru.database.helper import _insert
+from osaeru.database.config import app_settings
 
 
 def get_setting(conn: Connection, key: str) -> Optional[str]:

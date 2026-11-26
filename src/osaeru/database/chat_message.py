@@ -5,6 +5,8 @@ from sqlalchemy.engine import Connection
 from sqlalchemy import select
 
 from osaeru.database.config import Row, chat_messages
+from osaeru.database.helper import _now
+from osaeru.database.sync import queue_for_sync
 
 
 def add_chat_message(

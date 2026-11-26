@@ -1,6 +1,14 @@
 """Funcs to run Claude syncs with the database."""
 
 import logging
+import json
+import traceback
+
+from osaeru.database.flowchart import get_flowchart
+from osaeru.database.sync import pending_sync_items, mark_synced
+from osaeru.database.skills import upsert_skill, add_skill_edge
+from osaeru.database.recommendations import add_recommendation
+from osaeru.claude_sync.session_note import analyse_session_note
 
 logger = logging.getLogger(__name__)
 
@@ -16,9 +24,9 @@ def run_sync(conn) -> int:
     """
     logger.info("Sync starting")
     processed = 0
-    flowchart = db.get_flowchart(conn)
+    flowchart = get_flowchart(conn)
 
-    pending = db.pending_sync_items(conn)
+    pending = pending_sync_items(conn)
     logger.info(f"Found {len(pending)} pending sync item(s)")
 
     if not pending:
@@ -37,7 +45,7 @@ def run_sync(conn) -> int:
 
                 for skill in result.get("new_skills", []):
                     logger.info(f"Upserting skill: {skill}")
-                    db.upsert_skill(
+                    upsert_skill(
                         conn,
                         skill["name"],
                         skill.get("category"),
@@ -47,7 +55,7 @@ def run_sync(conn) -> int:
 
                 for edge in result.get("new_edges", []):
                     logger.info(f"Adding edge: {edge}")
-                    db.add_skill_edge(
+                    add_skill_edge(
                         conn,
                         edge["from"],
                         edge["to"],
@@ -57,20 +65,20 @@ def run_sync(conn) -> int:
                 for rec in result.get("recommendations", []):
                     logger.info(f"Adding recommendations: {rec}")
                     related = (
-                        db.upsert_skill(conn, rec["related_skill"])
+                        upsert_skill(conn, rec["related_skill"])
                         if rec.get("related_skill")
                         else None
                     )
-                    db.add_recommendation(conn, rec["text"], related)
+                    add_recommendation(conn, rec["text"], related)
 
-                flowchart = db.get_flowchart(conn)
+                flowchart = get_flowchart(conn)
 
             elif item["kind"] == "chat_message":
                 logger.debug(
                     f"Skipping chat_message item id={item['id']} (handled live, not via queue)"
                 )
 
-            db.mark_synced(conn, item["id"])
+            mark_synced(conn, item["id"])
             processed += 1
             logger.info(f"Item id={item['id']} marked synced")
 

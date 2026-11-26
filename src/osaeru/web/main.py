@@ -28,7 +28,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.engine import Connection
 
-from osaeru.claude_sync.api_key import get_api_key, verify_api_key, set_api_key
+from osaeru.claude_sync.api_key import get_api_key, verify_api_key, set_api_key, clear_api_key
 from osaeru.claude_sync.sync import run_sync
 from osaeru.claude_sync.chat import chat_reply
 from osaeru.web.graph import flowchart_payload
