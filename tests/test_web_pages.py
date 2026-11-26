@@ -14,7 +14,17 @@ import anthropic
 import pytest
 from fastapi.testclient import TestClient
 
-from osaeru import claude_sync, database as db
+from osaeru.claude_sync.api_key import get_api_key
+from osaeru.database.chat_message import add_chat_message, list_chat_messages
+from osaeru.database.engine import connect
+from osaeru.database.profile import get_profile, save_profile
+from osaeru.database.recommendations import (
+    add_recommendation,
+    list_recommendations,
+    set_recommendation_status,
+)
+from osaeru.database.sessions import add_session_note, list_sessions
+from osaeru.database.skills import add_skill_edge, upsert_skill
 from osaeru.web import main
 from conftest import api_error, connection_error, sqlite_only, text_message
 
@@ -28,7 +38,7 @@ def client():
 
 def open_conn():
     """The same database the app is using (SQLite file, or Postgres in Postgres mode)."""
-    return db.connect()
+    return connect()
 
 
 def seed(fn):
@@ -118,8 +128,8 @@ class TestNotesPage:
     def test_lists_sessions_newest_first(self, client):
         seed(
             lambda c: (
-                db.add_session_note(c, "Older note", "tired"),
-                db.add_session_note(c, "Newer note", "great"),
+                add_session_note(c, "Older note", "tired"),
+                add_session_note(c, "Newer note", "great"),
             )
         )
         text = client.get("/notes").text
@@ -127,25 +137,25 @@ class TestNotesPage:
         assert "feeling-tired" in text and "feeling-great" in text
 
     def test_note_text_is_escaped(self, client):
-        seed(lambda c: db.add_session_note(c, "<script>alert(1)</script>"))
+        seed(lambda c: add_session_note(c, "<script>alert(1)</script>"))
         text = client.get("/notes").text
         assert "<script>alert(1)</script>" not in text
         assert "&lt;script&gt;" in text
 
     def test_shows_pending_count_with_button(self, client):
-        seed(lambda c: (db.add_session_note(c, "a"), db.add_session_note(c, "b")))
+        seed(lambda c: (add_session_note(c, "a"), add_session_note(c, "b")))
         text = client.get("/notes").text
         assert "2 notes not analysed yet." in text
         assert "Analyse now" in text
 
     def test_saved_with_key_starts_analysis_automatically(self, client, with_key):
-        seed(lambda c: db.add_session_note(c, "a"))
+        seed(lambda c: add_session_note(c, "a"))
         text = client.get("/notes?saved=1").text
         assert 'hx-trigger="load"' in text
         assert "Claude is reading your note" in text
 
     def test_saved_without_key_does_not_auto_analyse(self, client):
-        seed(lambda c: db.add_session_note(c, "a"))
+        seed(lambda c: add_session_note(c, "a"))
         text = client.get("/notes?saved=1").text
         assert 'hx-trigger="load"' not in text
         assert "Analyse now" in text
@@ -160,18 +170,18 @@ class TestNotesPage:
             follow_redirects=False,
         )
         assert location(r) == "/notes?saved=1"
-        (s,) = seed(db.list_sessions)
+        (s,) = seed(list_sessions)
         assert (s["notes"], s["feeling"]) == ("Drilled knee cut", "good")
 
     def test_unknown_feeling_saved_as_none(self, client):
         client.post("/notes", data={"notes": "x", "feeling": "ecstatic"})
-        assert seed(db.list_sessions)[0]["feeling"] is None
+        assert seed(list_sessions)[0]["feeling"] is None
 
     @pytest.mark.parametrize("notes", ["", "   ", "\n\t"])
     def test_empty_note_rejected(self, client, notes):
         r = client.post("/notes", data={"notes": notes}, follow_redirects=False)
         assert "error=" in location(r)
-        assert seed(db.list_sessions) == []
+        assert seed(list_sessions) == []
 
     def test_missing_field_rejected(self, client):
         r = client.post("/notes", data={}, follow_redirects=False)
@@ -183,7 +193,7 @@ class TestSync:
     HX = {"HX-Request": "true"}
 
     def test_success_fragment(self, client, with_key, fake_claude):
-        seed(lambda c: db.add_session_note(c, "x"))
+        seed(lambda c: add_session_note(c, "x"))
         fake_claude.replies = [analysis(skills=[{"name": "Armbar"}, {"name": "Mount"}])]
         r = client.post("/sync", headers=self.HX)
         assert "Analysed 1 note. 2 new skills on your flowchart." in r.text
@@ -191,7 +201,7 @@ class TestSync:
         assert seed(main.pending_note_count) == 0
 
     def test_pluralisation(self, client, with_key, fake_claude):
-        seed(lambda c: (db.add_session_note(c, "a"), db.add_session_note(c, "b")))
+        seed(lambda c: (add_session_note(c, "a"), add_session_note(c, "b")))
         fake_claude.replies = [analysis(skills=[{"name": "Armbar"}]), analysis()]
         r = client.post("/sync", headers=self.HX)
         assert "Analysed 2 notes. 1 new skill on your flowchart." in r.text
@@ -202,14 +212,14 @@ class TestSync:
         assert fake_claude.calls == []
 
     def test_no_key(self, client):
-        seed(lambda c: db.add_session_note(c, "x"))
+        seed(lambda c: add_session_note(c, "x"))
         r = client.post("/sync", headers=self.HX)
         assert "Add your Claude API key in Settings first." in r.text
         assert "is-error" in r.text
         assert seed(main.pending_note_count) == 1
 
     def test_claude_error_shown_and_note_kept(self, client, with_key, fake_claude):
-        seed(lambda c: db.add_session_note(c, "x"))
+        seed(lambda c: add_session_note(c, "x"))
         fake_claude.replies = [api_error(anthropic.AuthenticationError, 401)]
         r = client.post("/sync", headers=self.HX)
         assert "Claude rejected the API key" in r.text
@@ -224,7 +234,7 @@ class TestSync:
         assert location(r) == "http://testserver/flowchart"
 
     def test_plain_post_error_redirects_with_message(self, client):
-        seed(lambda c: db.add_session_note(c, "x"))
+        seed(lambda c: add_session_note(c, "x"))
         r = client.post("/sync", follow_redirects=False)
         assert location(r).startswith("/notes?error=")
 
@@ -239,8 +249,8 @@ class TestFlowchartPage:
     def test_counts_and_chart_container(self, client):
         seed(
             lambda c: (
-                db.add_skill_edge(c, "A", "B", "leads_to"),
-                db.add_skill_edge(c, "B", "C", "leads_to"),
+                add_skill_edge(c, "A", "B", "leads_to"),
+                add_skill_edge(c, "B", "C", "leads_to"),
             )
         )
         text = client.get("/flowchart").text
@@ -248,11 +258,11 @@ class TestFlowchartPage:
         assert 'data-src="/api/flowchart"' in text
 
     def test_singular_counts(self, client):
-        seed(lambda c: db.upsert_skill(c, "A"))
+        seed(lambda c: upsert_skill(c, "A"))
         assert "1 skill, 0 connections" in client.get("/flowchart").text
 
     def test_shows_pending_button_but_never_auto_runs(self, client, with_key):
-        seed(lambda c: db.add_session_note(c, "x"))
+        seed(lambda c: add_session_note(c, "x"))
         text = client.get("/flowchart").text
         assert "1 note not analysed yet." in text
         assert 'hx-trigger="load"' not in text
@@ -264,13 +274,13 @@ class TestFlowchartApi:
 
     def test_nodes_edges_and_recommendations(self, client):
         def setup(c):
-            db.upsert_skill(c, "Knee Cut", "passing", "Beginner")
-            db.add_skill_edge(c, "Knee Cut", "Side Control", "leads_to")
-            rec = db.add_recommendation(
-                c, "Win the underhook", db.upsert_skill(c, "Knee Cut")
+            upsert_skill(c, "Knee Cut", "passing", "Beginner")
+            add_skill_edge(c, "Knee Cut", "Side Control", "leads_to")
+            rec = add_recommendation(
+                c, "Win the underhook", upsert_skill(c, "Knee Cut")
             )
-            done = db.add_recommendation(c, "Old tip", db.upsert_skill(c, "Knee Cut"))
-            db.set_recommendation_status(c, done, "tried")
+            done = add_recommendation(c, "Old tip", upsert_skill(c, "Knee Cut"))
+            set_recommendation_status(c, done, "tried")
 
         seed(setup)
         data = client.get("/api/flowchart").json()
@@ -297,8 +307,8 @@ class TestChatPage:
     def test_shows_conversation(self, client):
         seed(
             lambda c: (
-                db.add_chat_message(c, "user", "My question"),
-                db.add_chat_message(c, "assistant", "My answer"),
+                add_chat_message(c, "user", "My question"),
+                add_chat_message(c, "assistant", "My answer"),
             )
         )
         text = client.get("/chat").text
@@ -306,11 +316,11 @@ class TestChatPage:
         assert 'class="msg msg-user"' in text and 'class="msg msg-assistant"' in text
 
     def test_message_text_escaped(self, client):
-        seed(lambda c: db.add_chat_message(c, "assistant", "<b>bold</b>"))
+        seed(lambda c: add_chat_message(c, "assistant", "<b>bold</b>"))
         assert "&lt;b&gt;bold&lt;/b&gt;" in client.get("/chat").text
 
     def test_send_stores_both_sides(self, client, with_key, fake_claude):
-        seed(lambda c: db.add_skill_edge(c, "Mount", "Armbar", "leads_to"))
+        seed(lambda c: add_skill_edge(c, "Mount", "Armbar", "leads_to"))
         fake_claude.replies = [text_message("Keep your elbows tight.")]
         r = client.post(
             "/chat",
@@ -318,7 +328,7 @@ class TestChatPage:
             follow_redirects=False,
         )
         assert location(r) == "/chat"
-        msgs = [(m["role"], m["content"]) for m in seed(db.list_chat_messages)]
+        msgs = [(m["role"], m["content"]) for m in seed(list_chat_messages)]
         assert msgs == [
             ("user", "How do I keep mount?"),
             ("assistant", "Keep your elbows tight."),
@@ -330,8 +340,8 @@ class TestChatPage:
     def test_send_includes_history(self, client, with_key, fake_claude):
         seed(
             lambda c: (
-                db.add_chat_message(c, "user", "q1"),
-                db.add_chat_message(c, "assistant", "a1"),
+                add_chat_message(c, "user", "q1"),
+                add_chat_message(c, "assistant", "a1"),
             )
         )
         fake_claude.replies = [text_message("a2")]
@@ -345,7 +355,7 @@ class TestChatPage:
     def test_blank_message_does_nothing(self, client, fake_claude):
         r = client.post("/chat", data={"message": "   "}, follow_redirects=False)
         assert location(r) == "/chat"
-        assert seed(db.list_chat_messages) == []
+        assert seed(list_chat_messages) == []
 
     @pytest.mark.parametrize(
         "error, expected",
@@ -363,7 +373,7 @@ class TestChatPage:
         r = client.post("/chat", data={"message": "hello"}, follow_redirects=False)
         follow = client.get(location(r)).text
         assert expected in follow and "Your message is saved." in follow
-        assert [m["content"] for m in seed(db.list_chat_messages)] == ["hello"]
+        assert [m["content"] for m in seed(list_chat_messages)] == ["hello"]
 
     def test_no_key(self, client):
         r = client.post("/chat", data={"message": "hello"}, follow_redirects=False)
@@ -379,10 +389,10 @@ class TestRecommendationsPage:
 
     def test_lists_new_with_skill_name(self, client):
         def setup(c):
-            db.add_recommendation(
-                c, "Drill hip escapes", db.upsert_skill(c, "Hip Escape")
+            add_recommendation(
+                c, "Drill hip escapes", upsert_skill(c, "Hip Escape")
             )
-            db.add_recommendation(c, "General conditioning")
+            add_recommendation(c, "General conditioning")
 
         seed(setup)
         text = client.get("/recommendations").text
@@ -392,11 +402,11 @@ class TestRecommendationsPage:
 
     def test_hides_tried_and_skipped_and_shows_tally(self, client):
         def setup(c):
-            a = db.add_recommendation(c, "Tried one")
-            b = db.add_recommendation(c, "Skipped one")
-            db.add_recommendation(c, "Still new")
-            db.set_recommendation_status(c, a, "tried")
-            db.set_recommendation_status(c, b, "skipped")
+            a = add_recommendation(c, "Tried one")
+            b = add_recommendation(c, "Skipped one")
+            add_recommendation(c, "Still new")
+            set_recommendation_status(c, a, "tried")
+            set_recommendation_status(c, b, "skipped")
 
         seed(setup)
         text = client.get("/recommendations").text
@@ -406,20 +416,20 @@ class TestRecommendationsPage:
 
     @pytest.mark.parametrize("status", ["tried", "skipped", "new"])
     def test_update_status(self, client, status):
-        rid = seed(lambda c: db.add_recommendation(c, "x"))
+        rid = seed(lambda c: add_recommendation(c, "x"))
         r = client.post(
             f"/recommendations/{rid}", data={"status": status}, follow_redirects=False
         )
         assert location(r) == "/recommendations"
-        assert seed(db.list_recommendations)[0]["status"] == status
+        assert seed(list_recommendations)[0]["status"] == status
 
     def test_invalid_status_ignored(self, client):
-        rid = seed(lambda c: db.add_recommendation(c, "x"))
+        rid = seed(lambda c: add_recommendation(c, "x"))
         client.post(f"/recommendations/{rid}", data={"status": "deleted"})
-        assert seed(db.list_recommendations)[0]["status"] == "new"
+        assert seed(list_recommendations)[0]["status"] == "new"
 
     def test_missing_status_is_422(self, client):
-        rid = seed(lambda c: db.add_recommendation(c, "x"))
+        rid = seed(lambda c: add_recommendation(c, "x"))
         assert client.post(f"/recommendations/{rid}", data={}).status_code == 422
 
     def test_non_numeric_id_is_422(self, client):
@@ -439,7 +449,7 @@ class TestProfilePage:
 
     def test_prefilled(self, client):
         seed(
-            lambda c: db.save_profile(
+            lambda c: save_profile(
                 c, age=38, sex="female", weight_kg=61.5, sessions_per_week=4
             )
         )
@@ -450,7 +460,7 @@ class TestProfilePage:
     def test_save(self, client):
         r = client.post("/profile", data=self.VALID, follow_redirects=False)
         assert location(r) == "/profile?saved=1"
-        p = seed(db.get_profile)
+        p = seed(get_profile)
         assert (p["age"], p["sex"], p["weight_kg"], p["sessions_per_week"]) == (
             38,
             "male",
@@ -461,7 +471,7 @@ class TestProfilePage:
 
     def test_unknown_sex_saved_as_other(self, client):
         client.post("/profile", data={**self.VALID, "sex": "x"})
-        assert seed(db.get_profile)["sex"] == "other"
+        assert seed(get_profile)["sex"] == "other"
 
     @pytest.mark.parametrize("field", ["age", "weight_kg", "sessions_per_week"])
     @pytest.mark.parametrize("value", ["", "abc"])
@@ -470,7 +480,7 @@ class TestProfilePage:
             "/profile", data={**self.VALID, field: value}, follow_redirects=False
         )
         assert "error=" in location(r)
-        assert seed(db.get_profile) is None
+        assert seed(get_profile) is None
 
     def test_decimal_age_rejected(self, client):
         r = client.post(
@@ -507,8 +517,8 @@ class TestSettingsPage:
             data={"api_key": "  sk-ant-good-9999 "},
             follow_redirects=False,
         )
-        assert "Key+checked+and+saved+to+keychain" in location(r)
-        assert claude_sync.get_api_key() == "sk-ant-good-9999"
+        assert location(r).startswith("/settings?msg=Key+checked+and+saved+to+")
+        assert get_api_key() == "sk-ant-good-9999"
 
     def test_save_when_check_unavailable(self, client, fake_claude):
         fake_claude.models_error = connection_error()
@@ -516,7 +526,7 @@ class TestSettingsPage:
             "/settings/key", data={"api_key": "sk-ant-offline"}, follow_redirects=False
         )
         assert "couldn%27t+be+checked" in location(r)
-        assert claude_sync.get_api_key() == "sk-ant-offline"
+        assert get_api_key() == "sk-ant-offline"
 
     def test_rejected_key_not_saved(self, client, fake_claude):
         fake_claude.models_error = api_error(anthropic.AuthenticationError, 401)
@@ -524,7 +534,7 @@ class TestSettingsPage:
             "/settings/key", data={"api_key": "sk-ant-bad"}, follow_redirects=False
         )
         assert "rejected+that+key" in location(r)
-        assert claude_sync.get_api_key() is None
+        assert get_api_key() is None
 
     @pytest.mark.parametrize("value", ["", "hello", "sk-proj-123"])
     def test_wrong_format_not_checked_or_saved(self, client, fake_claude, value):
@@ -533,12 +543,27 @@ class TestSettingsPage:
         )
         assert "error=" in location(r)
         assert fake_claude.inits == []
-        assert claude_sync.get_api_key() is None
+        assert get_api_key() is None
 
     def test_remove(self, client, with_key):
         r = client.post("/settings/key/remove", follow_redirects=False)
         assert "Key+removed" in location(r)
-        assert claude_sync.get_api_key() is None
+        assert get_api_key() is None
+
+    def test_save_on_cloud_run_goes_to_database(self, client, fake_claude, monkeypatch):
+        monkeypatch.setenv("K_SERVICE", "osaeru")
+        if not os.environ.get("OSAERU_DATABASE_URL"):
+            monkeypatch.setenv(
+                "OSAERU_DATABASE_URL", f"sqlite:///{os.environ['OSAERU_DB_PATH']}"
+            )
+        r = client.post(
+            "/settings/key",
+            data={"api_key": "sk-ant-cloud-5678"},
+            follow_redirects=False,
+        )
+        assert "saved+to+the+database" in location(r)
+        assert "…5678" in client.get("/settings").text
+        assert "Claude isn’t connected yet" not in client.get("/notes").text
 
     def test_messages_shown(self, client):
         text = client.get("/settings?msg=All+good&error=Not+good").text
@@ -566,17 +591,17 @@ class TestHelpers:
 
     def test_pending_note_count_ignores_chat(self):
         def setup(c):
-            db.add_session_note(c, "x")
-            db.add_chat_message(c, "user", "y")
+            add_session_note(c, "x")
+            add_chat_message(c, "user", "y")
 
         seed(setup)
         assert seed(main.pending_note_count) == 1
 
     def test_recommendation_counts(self):
         def setup(c):
-            a = db.add_recommendation(c, "a")
-            db.add_recommendation(c, "b")
-            db.set_recommendation_status(c, a, "tried")
+            a = add_recommendation(c, "a")
+            add_recommendation(c, "b")
+            set_recommendation_status(c, a, "tried")
 
         seed(setup)
         assert seed(main.recommendation_counts) == {"tried": 1, "new": 1}
@@ -586,7 +611,7 @@ class TestHelpers:
         target = tmp_path / "elsewhere.sqlite3"
         monkeypatch.setenv("OSAERU_DB_PATH", str(target))
         with main.open_db() as c:
-            db.add_session_note(c, "x")
+            add_session_note(c, "x")
         assert target.exists()
 
     @sqlite_only

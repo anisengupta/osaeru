@@ -15,7 +15,22 @@ from sqlalchemy.exc import IntegrityError, ProgrammingError
 # sqlite3 reports them as IntegrityError. Either means the constraint held.
 CONSTRAINT_ERRORS = (IntegrityError, ProgrammingError)
 
-from osaeru import database as db
+from osaeru.database.chat_message import add_chat_message, list_chat_messages
+from osaeru.database.config import app_settings, metadata, profile, sync_queue
+from osaeru.database.engine import connect, dispose_engines, get_engine
+from osaeru.database.flowchart import get_flowchart
+from osaeru.database.helper import _create_tables, _now, backend, default_db_path
+from osaeru.database.profile import get_profile, save_profile
+from osaeru.database.recommendations import (
+    add_recommendation,
+    list_recommendations,
+    set_recommendation_status,
+)
+from osaeru.database.sessions import add_session_note, list_sessions
+from osaeru.database.settings import delete_setting, get_setting, set_setting
+from osaeru.database.skills import add_skill_edge, upsert_skill
+from osaeru.database.sync import mark_synced, pending_sync_items, queue_for_sync
+from osaeru.database import helper as db_helper
 from conftest import TEST_PG_URL, postgres_only, sqlite_only
 
 
@@ -37,46 +52,46 @@ class TestConnect:
         assert TABLES <= set(inspect(conn).get_table_names())
 
     def test_rows_are_mappings(self, conn):
-        db.add_session_note(conn, "x")
-        row = db.list_sessions(conn)[0]
+        add_session_note(conn, "x")
+        row = list_sessions(conn)[0]
         assert row["notes"] == "x"
         assert dict(row)["notes"] == "x"
 
     def test_foreign_keys_enforced(self, conn):
         with pytest.raises(CONSTRAINT_ERRORS):
-            db.add_recommendation(conn, "orphan", related_skill_id=999)
+            add_recommendation(conn, "orphan", related_skill_id=999)
 
     def test_profile_is_a_single_row(self, conn):
         with pytest.raises(CONSTRAINT_ERRORS):
-            conn.execute(db.profile.insert().values(id=2, updated_at="x"))
+            conn.execute(profile.insert().values(id=2, updated_at="x"))
             conn.commit()
 
     def test_reconnecting_keeps_data(self):
-        c = db.connect()
-        db.add_session_note(c, "persisted")
+        c = connect()
+        add_session_note(c, "persisted")
         c.close()
-        db.dispose_engines()  # like a restart
-        c = db.connect()
-        assert [s["notes"] for s in db.list_sessions(c)] == ["persisted"]
+        dispose_engines()  # like a restart
+        c = connect()
+        assert [s["notes"] for s in list_sessions(c)] == ["persisted"]
         c.close()
 
     def test_engine_is_reused(self):
-        assert db.get_engine() is db.get_engine()
+        assert get_engine() is get_engine()
 
     def test_dispose_engines_forgets_cached_engines(self):
-        first = db.get_engine()
-        db.dispose_engines()
-        assert db.get_engine() is not first
+        first = get_engine()
+        dispose_engines()
+        assert get_engine() is not first
 
     def test_creating_tables_twice_is_harmless(self):
-        db.connect().close()
-        db._create_tables(db.get_engine())  # e.g. a second instance starting up
-        c = db.connect()
+        connect().close()
+        _create_tables(get_engine())  # e.g. a second instance starting up
+        c = connect()
         assert TABLES <= set(inspect(c).get_table_names())
         c.close()
 
     def test_connections_can_be_closed(self):
-        c = db.connect()
+        c = connect()
         c.close()
         assert c.closed
 
@@ -88,22 +103,22 @@ def test_parallel_startups_do_not_race():
     import threading
     from sqlalchemy import create_engine, text
 
-    with db.get_engine().begin() as c:  # start from no tables at all
+    with get_engine().begin() as c:  # start from no tables at all
         c.execute(
             text(
                 "DROP TABLE IF EXISTS "
-                + ", ".join(t.name for t in db.metadata.sorted_tables)
+                + ", ".join(t.name for t in metadata.sorted_tables)
                 + " CASCADE"
             )
         )
-    db.dispose_engines()
+    dispose_engines()
 
     errors = []
 
     def start_instance():
         engine = create_engine(TEST_PG_URL)
         try:
-            db._create_tables(engine)
+            _create_tables(engine)
         except Exception as e:  # pragma: no cover - only on failure
             errors.append(e)
         finally:
@@ -115,7 +130,7 @@ def test_parallel_startups_do_not_race():
     for t in threads:
         t.join()
     assert errors == []
-    c = db.connect()
+    c = connect()
     assert TABLES <= set(inspect(c).get_table_names())
     c.close()
 
@@ -124,20 +139,20 @@ def test_parallel_startups_do_not_race():
 class TestSqliteFile:
     def test_default_path_is_under_home(self, isolated, monkeypatch):
         monkeypatch.delenv("OSAERU_DB_PATH")
-        assert db.default_db_path() == isolated.home / ".osaeru" / "osaeru.sqlite3"
+        assert default_db_path() == isolated.home / ".osaeru" / "osaeru.sqlite3"
 
     def test_env_overrides_path(self, tmp_path, monkeypatch):
         monkeypatch.setenv("OSAERU_DB_PATH", "~/custom.sqlite3")
-        assert db.default_db_path() == Path.home() / "custom.sqlite3"
+        assert default_db_path() == Path.home() / "custom.sqlite3"
 
     def test_connect_with_no_path_uses_default(self, isolated, monkeypatch):
         monkeypatch.delenv("OSAERU_DB_PATH")
-        db.connect().close()
+        connect().close()
         assert (isolated.home / ".osaeru" / "osaeru.sqlite3").exists()
 
     def test_explicit_path_wins(self, tmp_path):
         path = tmp_path / "a" / "b" / "c.sqlite3"
-        db.connect(path).close()
+        connect(path).close()
         assert path.exists()
 
     def test_foreign_keys_pragma_on(self, conn):
@@ -154,47 +169,47 @@ class TestSqliteFile:
         )
         raw.commit()
         raw.close()
-        c = db.connect(path)
-        assert [s["notes"] for s in db.list_sessions(c)] == ["old note"]
-        db.add_session_note(c, "new note")
-        assert len(db.list_sessions(c)) == 2
+        c = connect(path)
+        assert [s["notes"] for s in list_sessions(c)] == ["old note"]
+        add_session_note(c, "new note")
+        assert len(list_sessions(c)) == 2
         # Tables added since then are created alongside the old ones.
         assert "app_settings" in inspect(c).get_table_names()
-        db.set_setting(c, "k", "v")
-        assert db.get_setting(c, "k") == "v"
+        set_setting(c, "k", "v")
+        assert get_setting(c, "k") == "v"
         c.close()
 
 
 class TestChoosingBackend:
     def test_sqlite_by_default(self, monkeypatch):
         monkeypatch.delenv("OSAERU_DATABASE_URL", raising=False)
-        assert db.backend() == "sqlite"
+        assert backend() == "sqlite"
 
     def test_cloud_sql_when_instance_set(self, monkeypatch):
         monkeypatch.delenv("OSAERU_DATABASE_URL", raising=False)
         monkeypatch.setenv("CLOUD_SQL_INSTANCE", "p:r:i")
-        assert db.backend() == "cloudsql"
+        assert backend() == "cloudsql"
 
     def test_url_wins_over_cloud_sql(self, monkeypatch):
         monkeypatch.setenv("OSAERU_DATABASE_URL", "sqlite://")
         monkeypatch.setenv("CLOUD_SQL_INSTANCE", "p:r:i")
-        assert db.backend() == "url"
+        assert backend() == "url"
 
     def test_database_url_is_used(self, tmp_path, monkeypatch):
         target = tmp_path / "via-url.sqlite3"
         monkeypatch.setenv("OSAERU_DATABASE_URL", f"sqlite:///{target}")
-        db.connect().close()
+        connect().close()
         assert target.exists()
 
     def test_refuses_sqlite_on_cloud_run(self, monkeypatch):
         monkeypatch.delenv("OSAERU_DATABASE_URL", raising=False)
         monkeypatch.setenv("K_SERVICE", "osaeru")
         with pytest.raises(RuntimeError, match="CLOUD_SQL_INSTANCE"):
-            db.connect()
+            connect()
 
     def test_explicit_path_allowed_on_cloud_run(self, tmp_path, monkeypatch):
         monkeypatch.setenv("K_SERVICE", "osaeru")
-        db.connect(tmp_path / "explicit.sqlite3").close()
+        connect(tmp_path / "explicit.sqlite3").close()
 
 
 class FakeConnector:
@@ -232,10 +247,8 @@ class TestCloudSql:
 
         FakeConnector.instances = []
         monkeypatch.setattr(gcsc, "Connector", FakeConnector)
-        if hasattr(db, "Connector"):  # imported at the top of database.py
-            monkeypatch.setattr(db, "Connector", FakeConnector)
-        monkeypatch.setattr(db, "_connector", None)
-        monkeypatch.setattr(db.atexit, "register", lambda fn: None)
+        monkeypatch.setattr(db_helper, "_connector", None)
+        monkeypatch.setattr(db_helper.atexit, "register", lambda fn: None)
         monkeypatch.delenv("OSAERU_DATABASE_URL", raising=False)
         monkeypatch.setenv("CLOUD_SQL_INSTANCE", "my-proj:europe-west2:osaeru-db")
         monkeypatch.setenv("DB_NAME", "osaeru")
@@ -244,7 +257,7 @@ class TestCloudSql:
 
     def _first_connect(self):
         try:
-            db.connect().close()
+            connect().close()
         except Exception:
             if TEST_PG_URL:
                 raise
@@ -280,13 +293,13 @@ class TestCloudSql:
     def test_db_user_required(self, monkeypatch):
         monkeypatch.delenv("DB_USER")
         with pytest.raises(RuntimeError, match="DB_USER"):
-            db.connect()
+            connect()
 
     @postgres_only
     def test_end_to_end_through_connector(self):
-        c = db.connect()
-        db.add_session_note(c, "via Cloud SQL connector")
-        assert db.list_sessions(c)[0]["notes"] == "via Cloud SQL connector"
+        c = connect()
+        add_session_note(c, "via Cloud SQL connector")
+        assert list_sessions(c)[0]["notes"] == "via Cloud SQL connector"
         c.close()
         assert len(FakeConnector.instances) == 1  # one connector per process
 
@@ -314,7 +327,7 @@ CREATE TABLE sync_queue (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NUL
 
 
 def test_now_is_utc_iso8601():
-    parsed = dt.datetime.fromisoformat(db._now())
+    parsed = dt.datetime.fromisoformat(_now())
     assert parsed.tzinfo is not None
     assert parsed.utcoffset() == dt.timedelta(0)
 
@@ -322,97 +335,97 @@ def test_now_is_utc_iso8601():
 # ---- sync queue ------------------------------------------------------------------
 class TestSyncQueue:
     def test_queue_item_is_pending_with_json_payload(self, conn):
-        db.queue_for_sync(conn, "session_note", {"notes": "hi", "n": 1})
+        queue_for_sync(conn, "session_note", {"notes": "hi", "n": 1})
         conn.commit()
-        (item,) = db.pending_sync_items(conn)
+        (item,) = pending_sync_items(conn)
         assert item["kind"] == "session_note"
         assert json.loads(item["payload"]) == {"notes": "hi", "n": 1}
         assert item["sent_at"] is None
 
     def test_pending_items_oldest_first(self, conn):
         for i in range(3):
-            db.queue_for_sync(conn, "session_note", {"i": i})
+            queue_for_sync(conn, "session_note", {"i": i})
         conn.commit()
-        assert [json.loads(r["payload"])["i"] for r in db.pending_sync_items(conn)] == [
+        assert [json.loads(r["payload"])["i"] for r in pending_sync_items(conn)] == [
             0,
             1,
             2,
         ]
 
     def test_mark_synced_removes_from_pending(self, conn):
-        db.queue_for_sync(conn, "session_note", {})
-        db.queue_for_sync(conn, "session_note", {})
+        queue_for_sync(conn, "session_note", {})
+        queue_for_sync(conn, "session_note", {})
         conn.commit()
-        first, second = db.pending_sync_items(conn)
-        db.mark_synced(conn, first["id"])
-        assert [r["id"] for r in db.pending_sync_items(conn)] == [second["id"]]
+        first, second = pending_sync_items(conn)
+        mark_synced(conn, first["id"])
+        assert [r["id"] for r in pending_sync_items(conn)] == [second["id"]]
         sent = conn.execute(
-            select(db.sync_queue.c.sent_at).where(db.sync_queue.c.id == first["id"])
+            select(sync_queue.c.sent_at).where(sync_queue.c.id == first["id"])
         ).scalar_one()
         assert sent is not None
 
     def test_empty_queue(self, conn):
-        assert db.pending_sync_items(conn) == []
+        assert pending_sync_items(conn) == []
 
 
 # ---- settings --------------------------------------------------------------------
 class TestSettings:
     def test_missing_setting_is_none(self, conn):
-        assert db.get_setting(conn, "nope") is None
+        assert get_setting(conn, "nope") is None
 
     def test_set_and_get(self, conn):
-        db.set_setting(conn, "anthropic_api_key", "sk-ant-123")
-        assert db.get_setting(conn, "anthropic_api_key") == "sk-ant-123"
+        set_setting(conn, "anthropic_api_key", "sk-ant-123")
+        assert get_setting(conn, "anthropic_api_key") == "sk-ant-123"
 
     def test_set_replaces_existing_value(self, conn):
-        db.set_setting(conn, "k", "old")
-        db.set_setting(conn, "k", "new")
-        assert db.get_setting(conn, "k") == "new"
+        set_setting(conn, "k", "old")
+        set_setting(conn, "k", "new")
+        assert get_setting(conn, "k") == "new"
         assert (
-            conn.execute(select(func.count()).select_from(db.app_settings)).scalar_one()
+            conn.execute(select(func.count()).select_from(app_settings)).scalar_one()
             == 1
         )
 
     def test_set_updates_timestamp(self, conn):
-        db.set_setting(conn, "k", "v")
-        first = conn.execute(select(db.app_settings.c.updated_at)).scalar_one()
-        db.set_setting(conn, "k", "v2")
-        second = conn.execute(select(db.app_settings.c.updated_at)).scalar_one()
+        set_setting(conn, "k", "v")
+        first = conn.execute(select(app_settings.c.updated_at)).scalar_one()
+        set_setting(conn, "k", "v2")
+        second = conn.execute(select(app_settings.c.updated_at)).scalar_one()
         assert second >= first
 
     def test_keys_are_independent(self, conn):
-        db.set_setting(conn, "a", "1")
-        db.set_setting(conn, "b", "2")
-        db.delete_setting(conn, "a")
-        assert (db.get_setting(conn, "a"), db.get_setting(conn, "b")) == (None, "2")
+        set_setting(conn, "a", "1")
+        set_setting(conn, "b", "2")
+        delete_setting(conn, "a")
+        assert (get_setting(conn, "a"), get_setting(conn, "b")) == (None, "2")
 
     def test_delete_missing_setting_is_harmless(self, conn):
-        db.delete_setting(conn, "never-set")
+        delete_setting(conn, "never-set")
 
     def test_values_are_stored_exactly(self, conn):
         value = "  spaces, unicode ✓, 'quotes' and \"double\" \n newline "
-        db.set_setting(conn, "k", value)
-        assert db.get_setting(conn, "k") == value
+        set_setting(conn, "k", value)
+        assert get_setting(conn, "k") == value
 
     def test_persists_across_connections(self, conn):
-        db.set_setting(conn, "k", "v")
-        other = db.connect()
-        assert db.get_setting(other, "k") == "v"
+        set_setting(conn, "k", "v")
+        other = connect()
+        assert get_setting(other, "k") == "v"
         other.close()
 
     def test_value_cannot_be_null(self, conn):
         with pytest.raises(CONSTRAINT_ERRORS):
-            db.set_setting(conn, "k", None)
+            set_setting(conn, "k", None)
 
 
 # ---- profile ----------------------------------------------------------------------
 class TestProfile:
     def test_no_profile_returns_none(self, conn):
-        assert db.get_profile(conn) is None
+        assert get_profile(conn) is None
 
     def test_save_and_get(self, conn):
-        db.save_profile(conn, age=38, sex="male", weight_kg=78.5, sessions_per_week=3)
-        p = db.get_profile(conn)
+        save_profile(conn, age=38, sex="male", weight_kg=78.5, sessions_per_week=3)
+        p = get_profile(conn)
         assert (p["age"], p["sex"], p["weight_kg"], p["sessions_per_week"]) == (
             38,
             "male",
@@ -422,35 +435,35 @@ class TestProfile:
         assert p["updated_at"]
 
     def test_saving_again_updates_the_single_row(self, conn):
-        db.save_profile(conn, age=38, sex="male", weight_kg=78, sessions_per_week=3)
-        db.save_profile(conn, age=39, sex="male", weight_kg=80, sessions_per_week=4.5)
+        save_profile(conn, age=38, sex="male", weight_kg=78, sessions_per_week=3)
+        save_profile(conn, age=39, sex="male", weight_kg=80, sessions_per_week=4.5)
         assert (
-            conn.execute(select(func.count()).select_from(db.profile)).scalar_one() == 1
+            conn.execute(select(func.count()).select_from(profile)).scalar_one() == 1
         )
-        p = db.get_profile(conn)
+        p = get_profile(conn)
         assert (p["age"], p["weight_kg"], p["sessions_per_week"]) == (39, 80, 4.5)
 
     def test_arguments_are_keyword_only(self, conn):
         with pytest.raises(TypeError):
-            db.save_profile(conn, 38, "male", 78, 3)
+            save_profile(conn, 38, "male", 78, 3)
 
 
 # ---- sessions ----------------------------------------------------------------------
 class TestSessions:
     def test_add_returns_id_and_stores_note(self, conn):
-        sid = db.add_session_note(conn, "Drilled armbars", "good")
-        (s,) = db.list_sessions(conn)
+        sid = add_session_note(conn, "Drilled armbars", "good")
+        (s,) = list_sessions(conn)
         assert s["id"] == sid
         assert (s["notes"], s["feeling"]) == ("Drilled armbars", "good")
         assert s["occurred_at"] and s["created_at"]
 
     def test_feeling_is_optional(self, conn):
-        db.add_session_note(conn, "x")
-        assert db.list_sessions(conn)[0]["feeling"] is None
+        add_session_note(conn, "x")
+        assert list_sessions(conn)[0]["feeling"] is None
 
     def test_adding_a_note_queues_it_for_sync(self, conn):
-        sid = db.add_session_note(conn, "Rolled 5 rounds")
-        (item,) = db.pending_sync_items(conn)
+        sid = add_session_note(conn, "Rolled 5 rounds")
+        (item,) = pending_sync_items(conn)
         assert item["kind"] == "session_note"
         assert json.loads(item["payload"]) == {
             "session_id": sid,
@@ -459,8 +472,8 @@ class TestSessions:
 
     def test_list_is_newest_first(self, conn):
         for n in ("first", "second", "third"):
-            db.add_session_note(conn, n)
-        assert [s["notes"] for s in db.list_sessions(conn)] == [
+            add_session_note(conn, n)
+        assert [s["notes"] for s in list_sessions(conn)] == [
             "third",
             "second",
             "first",
@@ -468,21 +481,21 @@ class TestSessions:
 
     def test_list_respects_limit(self, conn):
         for i in range(5):
-            db.add_session_note(conn, f"n{i}")
-        assert len(db.list_sessions(conn, limit=2)) == 2
-        assert len(db.list_sessions(conn)) == 5
+            add_session_note(conn, f"n{i}")
+        assert len(list_sessions(conn, limit=2)) == 2
+        assert len(list_sessions(conn)) == 5
 
     def test_default_limit_is_50(self, conn):
         for i in range(55):
-            db.add_session_note(conn, f"n{i}")
-        assert len(db.list_sessions(conn)) == 50
+            add_session_note(conn, f"n{i}")
+        assert len(list_sessions(conn)) == 50
 
 
 # ---- skills and flowchart ----------------------------------------------------------
 class TestSkills:
     def test_upsert_creates_skill(self, conn):
-        sid = db.upsert_skill(conn, "Armbar", "submission", "learning")
-        (node,) = db.get_flowchart(conn)["nodes"]
+        sid = upsert_skill(conn, "Armbar", "submission", "learning")
+        (node,) = get_flowchart(conn)["nodes"]
         assert node["id"] == sid
         assert (node["name"], node["category"], node["confidence"]) == (
             "Armbar",
@@ -491,82 +504,82 @@ class TestSkills:
         )
 
     def test_upsert_existing_returns_same_id(self, conn):
-        assert db.upsert_skill(conn, "Armbar") == db.upsert_skill(conn, "Armbar")
-        assert len(db.get_flowchart(conn)["nodes"]) == 1
+        assert upsert_skill(conn, "Armbar") == upsert_skill(conn, "Armbar")
+        assert len(get_flowchart(conn)["nodes"]) == 1
 
     def test_upsert_updates_category_and_confidence(self, conn):
-        db.upsert_skill(conn, "Armbar", "submission", "learning")
-        db.upsert_skill(conn, "Armbar", "finish", "reliable")
-        node = db.get_flowchart(conn)["nodes"][0]
+        upsert_skill(conn, "Armbar", "submission", "learning")
+        upsert_skill(conn, "Armbar", "finish", "reliable")
+        node = get_flowchart(conn)["nodes"][0]
         assert (node["category"], node["confidence"]) == ("finish", "reliable")
 
     def test_upsert_with_none_keeps_existing_values(self, conn):
-        db.upsert_skill(conn, "Armbar", "submission", "learning")
-        db.upsert_skill(conn, "Armbar")
-        node = db.get_flowchart(conn)["nodes"][0]
+        upsert_skill(conn, "Armbar", "submission", "learning")
+        upsert_skill(conn, "Armbar")
+        node = get_flowchart(conn)["nodes"][0]
         assert (node["category"], node["confidence"]) == ("submission", "learning")
 
     def test_first_seen_session_is_not_overwritten(self, conn):
-        s1 = db.add_session_note(conn, "one")
-        s2 = db.add_session_note(conn, "two")
-        db.upsert_skill(conn, "Armbar", session_id=s1)
-        db.upsert_skill(conn, "Armbar", session_id=s2)
-        assert db.get_flowchart(conn)["nodes"][0]["first_seen_session_id"] == s1
+        s1 = add_session_note(conn, "one")
+        s2 = add_session_note(conn, "two")
+        upsert_skill(conn, "Armbar", session_id=s1)
+        upsert_skill(conn, "Armbar", session_id=s2)
+        assert get_flowchart(conn)["nodes"][0]["first_seen_session_id"] == s1
 
     def test_skill_names_are_case_sensitive(self, conn):
-        db.upsert_skill(conn, "Armbar")
-        db.upsert_skill(conn, "armbar")
-        assert len(db.get_flowchart(conn)["nodes"]) == 2
+        upsert_skill(conn, "Armbar")
+        upsert_skill(conn, "armbar")
+        assert len(get_flowchart(conn)["nodes"]) == 2
 
 
 class TestEdges:
     def test_edge_creates_missing_skills(self, conn):
-        db.add_skill_edge(conn, "Knee Cut", "Side Control", "leads_to")
-        graph = db.get_flowchart(conn)
+        add_skill_edge(conn, "Knee Cut", "Side Control", "leads_to")
+        graph = get_flowchart(conn)
         assert {n["name"] for n in graph["nodes"]} == {"Knee Cut", "Side Control"}
         assert graph["edges"] == [
             {"from_name": "Knee Cut", "to_name": "Side Control", "relation": "leads_to"}
         ]
 
     def test_edge_keeps_existing_skill_details(self, conn):
-        db.upsert_skill(conn, "Knee Cut", "passing", "comfortable")
-        db.add_skill_edge(conn, "Knee Cut", "Side Control", "leads_to")
+        upsert_skill(conn, "Knee Cut", "passing", "comfortable")
+        add_skill_edge(conn, "Knee Cut", "Side Control", "leads_to")
         knee = next(
-            n for n in db.get_flowchart(conn)["nodes"] if n["name"] == "Knee Cut"
+            n for n in get_flowchart(conn)["nodes"] if n["name"] == "Knee Cut"
         )
         assert knee["confidence"] == "comfortable"
 
     def test_duplicate_edge_is_ignored(self, conn):
-        db.add_skill_edge(conn, "A", "B", "leads_to")
-        db.add_skill_edge(conn, "A", "B", "leads_to")
-        assert len(db.get_flowchart(conn)["edges"]) == 1
+        add_skill_edge(conn, "A", "B", "leads_to")
+        add_skill_edge(conn, "A", "B", "leads_to")
+        assert len(get_flowchart(conn)["edges"]) == 1
 
     def test_same_pair_different_relation_is_kept(self, conn):
-        db.add_skill_edge(conn, "A", "B", "leads_to")
-        db.add_skill_edge(conn, "A", "B", "counters")
-        assert {e["relation"] for e in db.get_flowchart(conn)["edges"]} == {
+        add_skill_edge(conn, "A", "B", "leads_to")
+        add_skill_edge(conn, "A", "B", "counters")
+        assert {e["relation"] for e in get_flowchart(conn)["edges"]} == {
             "leads_to",
             "counters",
         }
 
     def test_edges_are_directed(self, conn):
-        db.add_skill_edge(conn, "A", "B", "leads_to")
-        db.add_skill_edge(conn, "B", "A", "leads_to")
-        assert len(db.get_flowchart(conn)["edges"]) == 2
+        add_skill_edge(conn, "A", "B", "leads_to")
+        add_skill_edge(conn, "B", "A", "leads_to")
+        assert len(get_flowchart(conn)["edges"]) == 2
 
     def test_empty_flowchart(self, conn):
-        assert db.get_flowchart(conn) == {"nodes": [], "edges": []}
+        assert get_flowchart(conn) == {"nodes": [], "edges": []}
 
     def test_flowchart_is_json_serialisable(self, conn):
-        db.add_skill_edge(conn, "A", "B", "leads_to")
-        json.dumps(db.get_flowchart(conn))  # claude_sync sends this to Claude
+        add_skill_edge(conn, "A", "B", "leads_to")
+        json.dumps(get_flowchart(conn))  # claude_sync sends this to Claude
 
 
 # ---- chat --------------------------------------------------------------------------
 class TestChat:
     def test_add_and_list(self, conn):
-        mid = db.add_chat_message(conn, "user", "How do I escape mount?")
-        (m,) = db.list_chat_messages(conn)
+        mid = add_chat_message(conn, "user", "How do I escape mount?")
+        (m,) = list_chat_messages(conn)
         assert (m["id"], m["role"], m["content"]) == (
             mid,
             "user",
@@ -574,29 +587,29 @@ class TestChat:
         )
 
     def test_list_is_oldest_first(self, conn):
-        db.add_chat_message(conn, "user", "q")
-        db.add_chat_message(conn, "assistant", "a")
-        assert [m["role"] for m in db.list_chat_messages(conn)] == ["user", "assistant"]
+        add_chat_message(conn, "user", "q")
+        add_chat_message(conn, "assistant", "a")
+        assert [m["role"] for m in list_chat_messages(conn)] == ["user", "assistant"]
 
     def test_user_messages_are_queued(self, conn):
-        db.add_chat_message(conn, "user", "hello")
-        (item,) = db.pending_sync_items(conn)
+        add_chat_message(conn, "user", "hello")
+        (item,) = pending_sync_items(conn)
         assert item["kind"] == "chat_message"
         assert json.loads(item["payload"]) == {"content": "hello", "session_id": None}
 
     def test_assistant_messages_are_not_queued(self, conn):
-        db.add_chat_message(conn, "assistant", "hi")
-        assert db.pending_sync_items(conn) == []
+        add_chat_message(conn, "assistant", "hi")
+        assert pending_sync_items(conn) == []
 
     def test_message_can_link_to_session(self, conn):
-        sid = db.add_session_note(conn, "x")
-        db.add_chat_message(conn, "user", "about that session", session_id=sid)
-        assert db.list_chat_messages(conn)[0]["session_id"] == sid
+        sid = add_session_note(conn, "x")
+        add_chat_message(conn, "user", "about that session", session_id=sid)
+        assert list_chat_messages(conn)[0]["session_id"] == sid
 
     def test_list_respects_limit(self, conn):
         for i in range(4):
-            db.add_chat_message(conn, "assistant", str(i))
-        assert [m["content"] for m in db.list_chat_messages(conn, limit=2)] == [
+            add_chat_message(conn, "assistant", str(i))
+        assert [m["content"] for m in list_chat_messages(conn, limit=2)] == [
             "0",
             "1",
         ]
@@ -605,8 +618,8 @@ class TestChat:
 # ---- recommendations ---------------------------------------------------------------
 class TestRecommendations:
     def test_new_recommendation_defaults(self, conn):
-        rid = db.add_recommendation(conn, "Drill hip escapes")
-        (r,) = db.list_recommendations(conn)
+        rid = add_recommendation(conn, "Drill hip escapes")
+        (r,) = list_recommendations(conn)
         assert (r["id"], r["text"], r["status"], r["related_skill_id"]) == (
             rid,
             "Drill hip escapes",
@@ -615,25 +628,25 @@ class TestRecommendations:
         )
 
     def test_linked_to_skill(self, conn):
-        skill = db.upsert_skill(conn, "Hip Escape")
-        db.add_recommendation(conn, "Drill it", skill)
-        assert db.list_recommendations(conn)[0]["related_skill_id"] == skill
+        skill = upsert_skill(conn, "Hip Escape")
+        add_recommendation(conn, "Drill it", skill)
+        assert list_recommendations(conn)[0]["related_skill_id"] == skill
 
     def test_list_newest_first(self, conn):
-        db.add_recommendation(conn, "old")
-        db.add_recommendation(conn, "new")
-        assert [r["text"] for r in db.list_recommendations(conn)] == ["new", "old"]
+        add_recommendation(conn, "old")
+        add_recommendation(conn, "new")
+        assert [r["text"] for r in list_recommendations(conn)] == ["new", "old"]
 
     def test_filter_by_status(self, conn):
-        a = db.add_recommendation(conn, "a")
-        db.add_recommendation(conn, "b")
-        db.set_recommendation_status(conn, a, "tried")
-        assert [r["text"] for r in db.list_recommendations(conn, status="tried")] == [
+        a = add_recommendation(conn, "a")
+        add_recommendation(conn, "b")
+        set_recommendation_status(conn, a, "tried")
+        assert [r["text"] for r in list_recommendations(conn, status="tried")] == [
             "a"
         ]
-        assert [r["text"] for r in db.list_recommendations(conn, status="new")] == ["b"]
-        assert len(db.list_recommendations(conn)) == 2
+        assert [r["text"] for r in list_recommendations(conn, status="new")] == ["b"]
+        assert len(list_recommendations(conn)) == 2
 
     def test_set_status_on_missing_id_does_nothing(self, conn):
-        db.set_recommendation_status(conn, 999, "tried")
-        assert db.list_recommendations(conn) == []
+        set_recommendation_status(conn, 999, "tried")
+        assert list_recommendations(conn) == []
