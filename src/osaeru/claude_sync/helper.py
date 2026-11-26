@@ -2,14 +2,13 @@
 
 import os
 import keyring
-from anthropic import Anthropic
+import keyring.backends.fail
 import json
 from typing import Dict, Any, Optional
 
 from osaeru.database.helper import backend
 from osaeru.database.engine import connect
 from osaeru.database.settings import get_setting
-from osaeru.claude_sync.api_key import get_api_key
 
 
 API_KEY_SETTING = "anthropic_api_key"
@@ -26,26 +25,6 @@ def _keyring_available() -> bool:
         return not isinstance(keyring.get_keyring(), keyring.backends.fail.Keyring)
     except Exception:
         return False
-
-
-def _client() -> Anthropic:
-    """Creates an Anthropic client using the stored API key.
-
-    Raises:
-        RuntimeError: If no Anthropic API key is stored in the OS keychain.
-
-    Returns:
-        Anthropic: An instance of the Anthropic client initialized
-        with the stored API key.
-    """
-    api_key = get_api_key()
-    if not api_key:
-        raise RuntimeError(
-            "No Anthropic API key stored. Prompt the user to enter one in "
-            "Settings before calling anything in this module."
-        )
-
-    return Anthropic(api_key=api_key)
 
 
 def _extract_json(text: str) -> Dict[str, Any]:

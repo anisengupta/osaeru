@@ -2,7 +2,9 @@
 
 from typing import Optional
 from sqlalchemy.engine import Connection
+from sqlalchemy import func, select
 
+from osaeru.database.config import skills, skill_edges
 from osaeru.database.helper import _insert, _now
 
 

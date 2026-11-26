@@ -4,7 +4,7 @@ from typing import Optional
 from sqlalchemy.engine import Connection
 from sqlalchemy import select
 
-from osaeru.database.helper import _insert
+from osaeru.database.helper import _insert, _now
 from osaeru.database.config import app_settings
 
 

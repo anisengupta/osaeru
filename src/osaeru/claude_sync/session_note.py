@@ -5,7 +5,8 @@ import logging
 import json
 
 from osaeru.config import MODEL, FLOWCHART_SYSTEM_PROMPT
-from osaeru.database.helper import _client, _extract_json
+from osaeru.claude_sync.api_key import _client
+from osaeru.claude_sync.helper import _extract_json
 
 logger = logging.getLogger(__name__)
 

@@ -5,6 +5,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy import select, update
 
 from osaeru.database.config import Row, recommendations
+from osaeru.database.helper import _now
 
 
 def add_recommendation(

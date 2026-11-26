@@ -2,11 +2,17 @@
 
 from typing import Optional
 import keyring
+import keyring.errors
 import anthropic
 from anthropic import Anthropic
 import logging
 
-from osaeru.claude_sync.helper import API_KEY_SETTING, _use_keychain, _keyring_available, _db_get_key
+from osaeru.claude_sync.helper import (
+    API_KEY_SETTING,
+    _use_keychain,
+    _keyring_available,
+    _db_get_key,
+)
 from osaeru.config import KEYRING_SERVICE, KEYRING_KEY
 from osaeru.database.engine import connect
 from osaeru.database.settings import set_setting, delete_setting
@@ -69,6 +75,26 @@ def clear_api_key() -> None:
         delete_setting(conn, API_KEY_SETTING)
     finally:
         conn.close()
+
+
+def _client() -> Anthropic:
+    """Creates an Anthropic client using the stored API key.
+
+    Raises:
+        RuntimeError: If no Anthropic API key is stored in the OS keychain.
+
+    Returns:
+        Anthropic: An instance of the Anthropic client initialized
+        with the stored API key.
+    """
+    api_key = get_api_key()
+    if not api_key:
+        raise RuntimeError(
+            "No Anthropic API key stored. Prompt the user to enter one in "
+            "Settings before calling anything in this module."
+        )
+
+    return Anthropic(api_key=api_key)
 
 
 def verify_api_key(api_key: str) -> Optional[bool]:

@@ -39,7 +39,7 @@ from osaeru.database.flowchart import get_flowchart
 from osaeru.database.recommendations import list_recommendations, set_recommendation_status
 from osaeru.database.sessions import list_sessions, add_session_note
 from osaeru.database.chat_message import list_chat_messages, add_chat_message
-from osaeru.database.profile import get_profile, save_profile
+from osaeru.database.profile import get_profile, save_profile as db_save_profile
 
 logger = logging.getLogger(__name__)
 
@@ -502,7 +502,7 @@ def save_profile(
             "/profile", error="Age, weight and sessions per week need to be numbers."
         )
     with open_db() as conn:
-        save_profile(conn, **values)
+        db_save_profile(conn, **values)
     return redirect("/profile", saved=1)
 
 

@@ -5,7 +5,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy import select
 
 from osaeru.database.config import Row, profile
-from osaeru.database.helper import _insert
+from osaeru.database.helper import _insert, _now
 
 
 def save_profile(
