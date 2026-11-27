@@ -28,7 +28,10 @@ import pytest
 # Lets `pytest` import the package from src/ without installing it.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from osaeru import claude_sync, database as db  # noqa: E402
+from osaeru.claude_sync.api_key import set_api_key  # noqa: E402
+from osaeru.database.config import metadata  # noqa: E402
+from osaeru.database.engine import connect, dispose_engines  # noqa: E402
+from osaeru.claude_sync import api_key as api_key_module  # noqa: E402
 
 
 # ---- keychain ----------------------------------------------------------------
@@ -142,8 +145,8 @@ def _empty_postgres(url):
     from sqlalchemy import create_engine, text
 
     engine = create_engine(url)
-    db.metadata.create_all(engine)
-    names = ", ".join(t.name for t in db.metadata.sorted_tables)
+    metadata.create_all(engine)
+    names = ", ".join(t.name for t in metadata.sorted_tables)
     with engine.begin() as c:
         c.execute(text(f"TRUNCATE {names} RESTART IDENTITY CASCADE"))
     engine.dispose()
@@ -161,7 +164,7 @@ def isolated(tmp_path, monkeypatch):
     if TEST_PG_URL:
         _empty_postgres(TEST_PG_URL)
         monkeypatch.setenv("OSAERU_DATABASE_URL", TEST_PG_URL)
-    db.dispose_engines()
+    dispose_engines()
 
     original = keyring.get_keyring()
     memory = MemoryKeyring()
@@ -171,18 +174,18 @@ def isolated(tmp_path, monkeypatch):
     FakeAnthropic.calls = []
     FakeAnthropic.inits = []
     FakeAnthropic.models_error = None
-    monkeypatch.setattr(claude_sync, "Anthropic", FakeAnthropic)
+    monkeypatch.setattr(api_key_module, "Anthropic", FakeAnthropic)  # where _client / verify_api_key look it up
 
     yield SimpleNamespace(home=home, keyring=memory, tmp=tmp_path)
 
     keyring.set_keyring(original)
-    db.dispose_engines()
+    dispose_engines()
 
 
 @pytest.fixture
 def conn():
     """A connection to the (empty) test database."""
-    c = db.connect()
+    c = connect()
     yield c
     c.close()
 
@@ -195,5 +198,5 @@ def fake_claude():
 @pytest.fixture
 def with_key():
     """Stores a (fake) API key (keychain locally, database in Postgres mode)."""
-    claude_sync.set_api_key("sk-ant-test-1234")
+    set_api_key("sk-ant-test-1234")
     return "sk-ant-test-1234"
